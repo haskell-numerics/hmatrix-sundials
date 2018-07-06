@@ -125,6 +125,11 @@ getContentPtr ptr = (#peek SunVector, content) ptr
 getData :: Storable a => Ptr b -> IO a
 getData ptr = (#peek SunContent, data) ptr
 
+cV_SUCCESS :: Int
+cV_SUCCESS = #const CV_SUCCESS
+cV_ROOT_RETURN :: Int
+cV_ROOT_RETURN = #const CV_ROOT_RETURN
+
 cV_ADAMS :: Int
 cV_ADAMS = #const CV_ADAMS
 cV_BDF :: Int

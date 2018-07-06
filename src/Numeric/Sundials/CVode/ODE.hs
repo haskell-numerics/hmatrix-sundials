@@ -66,8 +66,10 @@ module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , odeSolveV
                                    , odeSolveVWith
                                    , odeSolveVWith'
+                                   , odeSolveVWith''
                                    , ODEMethod(..)
                                    , StepControl(..)
+                                   , SolverResult(..)
                                    ) where
 
 import qualified Language.C.Inline as C
@@ -91,7 +93,8 @@ import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape)
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
-                                          getDataFromContents, putDataInContents)
+                                          getDataFromContents, putDataInContents,
+                                          vectorToC, cV_SUCCESS, cV_ROOT_RETURN)
 import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.ODEOpts (ODEOpts(..), Jacobian, SundialsDiagnostics(..))
 
@@ -446,6 +449,327 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       return $ Right (m, d)
     else do
       return $ Left  (m, res)
+
+solveOdeC' ::
+  CInt ->
+  CLong ->
+  CDouble ->
+  CInt ->
+  Maybe CDouble ->
+  (Maybe (CDouble -> V.Vector CDouble -> T.SunMatrix)) ->
+  (V.Vector CDouble, CDouble) ->
+  (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  -> V.Vector CDouble -- ^ Initial conditions
+  -> CInt -- ^ FIXME
+  -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ FIXME
+  -> V.Vector CDouble -- ^ Desired solution times
+  -> SolverResult V.Vector V.Vector CInt CDouble
+solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
+          jacH (aTols, rTol) fun f0 nr g ts =
+  unsafePerformIO $ do
+
+  let isInitStepSize :: CInt
+      isInitStepSize = fromIntegral $ fromEnum $ isJust initStepSize
+      ss :: CDouble
+      ss = case initStepSize of
+             -- It would be better to put an error message here but
+             -- inline-c seems to evaluate this even if it is never
+             -- used :(
+             Nothing -> 0.0
+             Just x  -> x
+
+  let dim = V.length f0
+      nEq :: CLong
+      nEq = fromIntegral dim
+      nTs :: CInt
+      nTs = fromIntegral $ V.length ts
+  quasiMatrixRes <- createVector ((fromIntegral dim) * (fromIntegral nTs))
+  qMatMut <- V.thaw quasiMatrixRes
+  diagnostics :: V.Vector CLong <- createVector 10 -- FIXME
+  diagMut <- V.thaw diagnostics
+  -- We need the types that sundials expects.
+  -- FIXME: The Haskell type is currently empty!
+  let funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
+      funIO t y f _ptr = do
+        -- Convert the pointer we get from C (y) to a vector, and then
+        -- apply the user-supplied function.
+        fImm <- fun t <$> getDataFromContents dim y
+        -- Fill in the provided pointer with the resulting vector.
+        putDataInContents fImm dim f
+        -- FIXME: I don't understand what this comment means
+        -- Unsafe since the function will be called many times.
+        [CU.exp| int{ 0 } |]
+
+  let nrPre = fromIntegral nr
+  gResults :: V.Vector CInt <- createVector nrPre
+  gResMut <- V.thaw gResults
+  tRoot :: V.Vector CDouble <- createVector 1
+  tRootMut <- V.thaw tRoot
+
+  let gIO :: CDouble -> Ptr T.SunVector -> Ptr CDouble -> Ptr () -> IO CInt
+      gIO x y f _ptr = do
+        -- Convert the pointer we get from C (y) to a vector, and then
+        -- apply the user-supplied function.
+        gImm <- g x <$> getDataFromContents dim y
+        -- Fill in the provided pointer with the resulting vector.
+        vectorToC gImm nrPre f
+        -- FIXME: I don't understand what this comment means
+        -- Unsafe since the function will be called many times.
+        [CU.exp| int{ 0 } |]
+
+  let isJac :: CInt
+      isJac = fromIntegral $ fromEnum $ isJust jacH
+      jacIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunMatrix ->
+               Ptr () -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunVector ->
+               IO CInt
+      jacIO t y _fy jacS _ptr _tmp1 _tmp2 _tmp3 = do
+        case jacH of
+          Nothing   -> error "Numeric.Sundials.CVode.ODE: Jacobian not defined"
+          Just jacI -> do j <- jacI t <$> getDataFromContents dim y
+                          poke jacS j
+                          -- FIXME: I don't understand what this comment means
+                          -- Unsafe since the function will be called many times.
+                          [CU.exp| int{ 0 } |]
+
+  res <- [C.block| int {
+                         /* general problem variables */
+
+                         int flag;                  /* reusable error-checking flag                 */
+                         int flagr;                 /* root finding flag                            */
+
+                         int i, j;                  /* reusable loop indices                        */
+                         N_Vector y = NULL;         /* empty vector for storing solution            */
+                         N_Vector tv = NULL;        /* empty vector for storing absolute tolerances */
+
+                         SUNMatrix A = NULL;        /* empty matrix for linear solver               */
+                         SUNLinearSolver LS = NULL; /* empty linear solver object                   */
+                         void *cvode_mem = NULL;    /* empty CVODE memory structure                 */
+                         realtype t;
+                         long int nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
+
+                         realtype tout;
+
+                         /* general problem parameters */
+
+                         realtype T0 = RCONST(($vec-ptr:(double *ts))[0]); /* initial time              */
+                         sunindextype NEQ = $(sunindextype nEq);           /* number of dependent vars. */
+
+                         /* Initialize data structures */
+
+                         y = N_VNew_Serial(NEQ); /* Create serial vector for solution */
+                         if (check_flag((void *)y, "N_VNew_Serial", 0)) return 1;
+                         /* Specify initial condition */
+                         for (i = 0; i < NEQ; i++) {
+                           NV_Ith_S(y,i) = ($vec-ptr:(double *f0))[i];
+                         };
+
+                         cvode_mem = CVodeCreate($(int method), CV_NEWTON);
+                         if (check_flag((void *)cvode_mem, "CVodeCreate", 0)) return(1);
+
+                         /* Call CVodeInit to initialize the integrator memory and specify the
+                          * user's right hand side function in y'=f(t,y), the inital time T0, and
+                          * the initial dependent variable vector y. */
+                         flag = CVodeInit(cvode_mem,   $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
+                         if (check_flag(&flag, "CVodeInit", 1)) return(1);
+
+                         tv = N_VNew_Serial(NEQ); /* Create serial vector for absolute tolerances */
+                         if (check_flag((void *)tv, "N_VNew_Serial", 0)) return 1;
+                         /* Specify tolerances */
+                         for (i = 0; i < NEQ; i++) {
+                           NV_Ith_S(tv,i) = ($vec-ptr:(double *aTols))[i];
+                         };
+
+                         flag = CVodeSetMinStep(cvode_mem, $(double minStep_));
+                         if (check_flag(&flag, "CVodeSetMinStep", 1)) return 1;
+                         flag = CVodeSetMaxNumSteps(cvode_mem, $(long int maxNumSteps_));
+                         if (check_flag(&flag, "CVodeSetMaxNumSteps", 1)) return 1;
+                         flag = CVodeSetMaxErrTestFails(cvode_mem, $(int maxErrTestFails));
+                         if (check_flag(&flag, "CVodeSetMaxErrTestFails", 1)) return 1;
+
+                         /* Call CVodeSVtolerances to specify the scalar relative tolerance
+                          * and vector absolute tolerances */
+                         flag = CVodeSVtolerances(cvode_mem, $(double rTol), tv);
+                         if (check_flag(&flag, "CVodeSVtolerances", 1)) return(1);
+
+                         /* Call CVodeRootInit to specify the root function g with nr components */
+                         flag = CVodeRootInit(cvode_mem, $(int nr), $fun:(int (* gIO) (double t, SunVector y[], double gout[], void * params)));
+
+                         if (check_flag(&flag, "CVodeRootInit", 1)) return(1);
+
+                         /* Initialize dense matrix data structure and solver */
+                         A = SUNDenseMatrix(NEQ, NEQ);
+                         if (check_flag((void *)A, "SUNDenseMatrix", 0)) return 1;
+                         LS = SUNDenseLinearSolver(y, A);
+                         if (check_flag((void *)LS, "SUNDenseLinearSolver", 0)) return 1;
+
+                         /* Attach matrix and linear solver */
+                         flag = CVDlsSetLinearSolver(cvode_mem, LS, A);
+                         if (check_flag(&flag, "CVDlsSetLinearSolver", 1)) return 1;
+
+                         /* Set the initial step size if there is one */
+                         if ($(int isInitStepSize)) {
+                           /* FIXME: We could check if the initial step size is 0 */
+                           /* or even NaN and then throw an error                 */
+                           flag = CVodeSetInitStep(cvode_mem, $(double ss));
+                           if (check_flag(&flag, "CVodeSetInitStep", 1)) return 1;
+                         }
+
+                         /* Set the Jacobian if there is one */
+                         if ($(int isJac)) {
+                           flag = CVDlsSetJacFn(cvode_mem, $fun:(int (* jacIO) (double t, SunVector y[], SunVector fy[], SunMatrix Jac[], void * params, SunVector tmp1[], SunVector tmp2[], SunVector tmp3[])));
+                           if (check_flag(&flag, "CVDlsSetJacFn", 1)) return 1;
+                         }
+
+                         /* Store initial conditions */
+                         for (j = 0; j < NEQ; j++) {
+                           ($vec-ptr:(double *qMatMut))[0 * $(int nTs) + j] = NV_Ith_S(y,j);
+                         }
+
+                         /* Main time-stepping loop: calls CVode to perform the integration */
+                         /* Stops when the final time has been reached                      */
+                         for (i = 1; i < $(int nTs); i++) {
+
+                           flag = CVode(cvode_mem, ($vec-ptr:(double *ts))[i], y, &t, CV_NORMAL); /* call integrator */
+                           if (check_flag(&flag, "CVode solver failure, stopping integration", 1)) return 1;
+
+                           /* Store the results for Haskell */
+                           for (j = 0; j < NEQ; j++) {
+                             ($vec-ptr:(double *qMatMut))[i * NEQ + j] = NV_Ith_S(y,j);
+                           }
+
+                           printf("t = %e, y =%14.6e\n", t, NV_Ith_S(y,0));
+                           if (flag == CV_ROOT_RETURN) {
+                             flagr = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
+                             if (check_flag(&flagr, "CVodeGetRootInfo", 1)) return(1);
+                             printf("Roots found: %3d %d\n", ($vec-ptr:(int *gResMut))[0], ($vec-ptr:(int *gResMut))[1]);
+                             ($vec-ptr:(double *tRootMut))[0] = t;
+                             flagr = flag;
+                             break;
+                           }
+                         }
+
+                         /* Get some final statistics on how the solve progressed */
+
+                         flag = CVodeGetNumSteps(cvode_mem, &nst);
+                         check_flag(&flag, "CVodeGetNumSteps", 1);
+                         ($vec-ptr:(long int *diagMut))[0] = nst;
+
+                         /* FIXME */
+                         ($vec-ptr:(long int *diagMut))[1] = 0;
+
+                         flag = CVodeGetNumRhsEvals(cvode_mem, &nfe);
+                         check_flag(&flag, "CVodeGetNumRhsEvals", 1);
+                         ($vec-ptr:(long int *diagMut))[2] = nfe;
+                         /* FIXME */
+                         ($vec-ptr:(long int *diagMut))[3] = 0;
+
+                         flag = CVodeGetNumLinSolvSetups(cvode_mem, &nsetups);
+                         check_flag(&flag, "CVodeGetNumLinSolvSetups", 1);
+                         ($vec-ptr:(long int *diagMut))[4] = nsetups;
+
+                         flag = CVodeGetNumErrTestFails(cvode_mem, &netf);
+                         check_flag(&flag, "CVodeGetNumErrTestFails", 1);
+                         ($vec-ptr:(long int *diagMut))[5] = netf;
+
+                         flag = CVodeGetNumNonlinSolvIters(cvode_mem, &nni);
+                         check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1);
+                         ($vec-ptr:(long int *diagMut))[6] = nni;
+
+                         flag = CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
+                         check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
+                         ($vec-ptr:(long int *diagMut))[7] = ncfn;
+
+                         flag = CVDlsGetNumJacEvals(cvode_mem, &nje);
+                         check_flag(&flag, "CVDlsGetNumJacEvals", 1);
+                         ($vec-ptr:(long int *diagMut))[8] = ncfn;
+
+                         flag = CVDlsGetNumRhsEvals(cvode_mem, &nfeLS);
+                         check_flag(&flag, "CVDlsGetNumRhsEvals", 1);
+                         ($vec-ptr:(long int *diagMut))[9] = ncfn;
+
+                         /* Clean up and return */
+
+                         N_VDestroy(y);          /* Free y vector          */
+                         N_VDestroy(tv);         /* Free tv vector         */
+                         CVodeFree(&cvode_mem);  /* Free integrator memory */
+                         SUNLinSolFree(LS);      /* Free linear solver     */
+                         SUNMatDestroy(A);       /* Free A matrix          */
+
+                         if (flag == CV_SUCCESS && flagr == CV_ROOT_RETURN) {
+                           return CV_ROOT_RETURN;
+                         }
+                         else {
+                           return flag;
+                         }
+                       } |]
+  preD <- V.freeze diagMut
+  let d = SundialsDiagnostics (fromIntegral $ preD V.!0)
+                              (fromIntegral $ preD V.!1)
+                              (fromIntegral $ preD V.!2)
+                              (fromIntegral $ preD V.!3)
+                              (fromIntegral $ preD V.!4)
+                              (fromIntegral $ preD V.!5)
+                              (fromIntegral $ preD V.!6)
+                              (fromIntegral $ preD V.!7)
+                              (fromIntegral $ preD V.!8)
+                              (fromIntegral $ preD V.!9)
+  m  <- V.freeze qMatMut
+  t  <- V.freeze tRootMut
+  rs <- V.freeze gResMut
+  putStrLn $ show rs
+  let f r | r == cV_SUCCESS     = SolverSuccess m d
+          | r == cV_ROOT_RETURN = SolverRoot (t V.!0) rs m d
+          | otherwise           = SolverError m res
+  return $ f $ fromIntegral res
+
+data SolverResult f g a b =
+    SolverError (f b) a                            -- ^ Partial results and error code
+  | SolverSuccess (f b) SundialsDiagnostics        -- ^ Results and diagnostics
+  | SolverRoot b (g a) (f b) SundialsDiagnostics   -- ^ Time at which the root was found, the root itself and the
+                                                   -- results and diagnostics. NB the final result will be at the time
+                                                   -- at which the root was found not as specified by the times given
+                                                   -- to the solver.
+    deriving Show
+
+odeSolveVWith'' ::
+  ODEOpts
+  -> ODEMethod
+  -> StepControl
+  -> Maybe Double -- ^ initial step size - by default, CVode
+                  -- estimates the initial step size to be the
+                  -- solution \(h\) of the equation
+                  -- \(\|\frac{h^2\ddot{y}}{2}\| = 1\), where
+                  -- \(\ddot{y}\) is an estimated value of the second
+                  -- derivative of the solution at \(t_0\)
+  -> (Double -> V.Vector Double -> V.Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  -> V.Vector Double                     -- ^ Initial conditions
+  -> Int                                 -- ^ Dimension of the range of the roots function
+  -> (Double -> V.Vector Double -> V.Vector Double) -- ^ Roots function
+  -> V.Vector Double                     -- ^ Desired solution times
+  -> SolverResult Matrix Vector Int Double
+odeSolveVWith'' opts method control initStepSize f y0 is gg tt =
+  case solveOdeC' (fromIntegral $ maxFail opts)
+                 (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
+                 (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
+                 (coerce f) (coerce y0) (fromIntegral is) (coerce gg) (coerce tt) of
+    SolverError v c     -> SolverError                       (reshape l (coerce v)) (fromIntegral c)
+    SolverSuccess v d   -> SolverSuccess                     (reshape l (coerce v)) d
+    SolverRoot t rs v d -> SolverRoot (coerce t) (V.map fromIntegral rs) (reshape l (coerce v)) d
+  where
+    l = size y0
+    scise (X aTol rTol)                          = coerce (V.replicate l aTol, rTol)
+    scise (X' aTol rTol)                         = coerce (V.replicate l aTol, rTol)
+    scise (XX' aTol rTol yScale _yDotScale)      = coerce (V.replicate l aTol, yScale * rTol)
+    -- FIXME; Should we check that the length of ss is correct?
+    scise (ScXX' aTol rTol yScale _yDotScale ss) = coerce (V.map (* aTol) ss, yScale * rTol)
+    jacH = fmap (\g t v -> matrixToSunMatrix $ g (coerce t) (coerce v)) $
+           getJacobian method
+    matrixToSunMatrix m = T.SunMatrix { T.rows = nr, T.cols = nc, T.vals = vs }
+      where
+        nr = fromIntegral $ rows m
+        nc = fromIntegral $ cols m
+        -- FIXME: efficiency
+        vs = V.fromList $ map coerce $ concat $ toLists m
 
 -- | Adaptive step-size control
 -- functions.
