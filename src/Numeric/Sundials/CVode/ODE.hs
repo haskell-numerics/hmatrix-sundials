@@ -66,7 +66,7 @@ module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , odeSolveV
                                    , odeSolveVWith
                                    , odeSolveVWith'
-                                   , odeSolveVWith''
+                                   , odeSolveRootVWith'
                                    , ODEMethod(..)
                                    , StepControl(..)
                                    , SolverResult(..)
@@ -637,11 +637,9 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                              ($vec-ptr:(double *qMatMut))[i * NEQ + j] = NV_Ith_S(y,j);
                            }
 
-                           printf("t = %e, y =%14.6e\n", t, NV_Ith_S(y,0));
                            if (flag == CV_ROOT_RETURN) {
                              flagr = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
                              if (check_flag(&flagr, "CVodeGetRootInfo", 1)) return(1);
-                             printf("Roots found: %3d %d\n", ($vec-ptr:(int *gResMut))[0], ($vec-ptr:(int *gResMut))[1]);
                              ($vec-ptr:(double *tRootMut))[0] = t;
                              flagr = flag;
                              break;
@@ -731,7 +729,7 @@ data SolverResult f g a b =
                                                    -- to the solver.
     deriving Show
 
-odeSolveVWith'' ::
+odeSolveRootVWith' ::
   ODEOpts
   -> ODEMethod
   -> StepControl
@@ -747,7 +745,7 @@ odeSolveVWith'' ::
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ Roots function
   -> V.Vector Double                     -- ^ Desired solution times
   -> SolverResult Matrix Vector Int Double
-odeSolveVWith'' opts method control initStepSize f y0 is gg tt =
+odeSolveRootVWith' opts method control initStepSize f y0 is gg tt =
   case solveOdeC' (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
