@@ -1,5 +1,7 @@
-Currently only an interface to the Runge-Kutta methods:
-[ARKode](https://computation.llnl.gov/projects/sundials/arkode)
+An interface to the Runge-Kutta methods:
+[ARKode](https://computation.llnl.gov/projects/sundials/arkode) and
+the methods in
+[CVode](https://computation.llnl.gov/projects/sundials/cvode)
 
 The interface is almost certainly going to change. Sundials gives a
 rich set of "combinators" for controlling the solution of your problem
