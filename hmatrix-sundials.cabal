@@ -33,7 +33,7 @@ library
                        Numeric.Sundials.ARKode.ODE,
                        Numeric.Sundials.CVode.ODE
   other-modules:       Numeric.Sundials.Arkode
-  c-sources:           src/helpers.c src/helpers.h
+  c-sources:           src/helpers.c
   default-language:    Haskell2010
 
 test-suite hmatrix-sundials-testsuite
@@ -57,5 +57,5 @@ test-suite hmatrix-sundials-testsuite
   hs-source-dirs:      src
   extra-libraries:     sundials_arkode,
                        sundials_cvode
-  c-sources:           src/helpers.c src/helpers.h
+  c-sources:           src/helpers.c
   default-language:    Haskell2010

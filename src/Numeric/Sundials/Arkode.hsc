@@ -3,7 +3,42 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE EmptyDataDecls #-}
 
-module Numeric.Sundials.Arkode where
+module Numeric.Sundials.Arkode ( getDataFromContents
+                               , putDataInContents
+                               , cV_ADAMS
+                               , cV_BDF
+                               , vectorToC
+                               , cV_SUCCESS
+                               , cV_ROOT_RETURN
+                               , sunCtx
+                               , SunMatrix(..)
+                               , SunVector
+                               , hEUN_EULER_2_1_2
+                               , bOGACKI_SHAMPINE_4_2_3
+                               , aRK324L2SA_ERK_4_2_3
+                               , zONNEVELD_5_3_4
+                               , aRK436L2SA_ERK_6_3_4
+                               , sAYFY_ABURUB_6_3_4
+                               , cASH_KARP_6_4_5
+                               , fEHLBERG_6_4_5
+                               , dORMAND_PRINCE_7_4_5
+                               , aRK548L2SA_ERK_8_4_5
+                               , vERNER_8_5_6
+                               , fEHLBERG_13_7_8
+                               , sDIRK_2_1_2
+                               , bILLINGTON_3_3_2
+                               , tRBDF2_3_3_2
+                               , kVAERNO_4_2_3
+                               , aRK324L2SA_DIRK_4_2_3
+                               , cASH_5_2_4
+                               , cASH_5_3_4
+                               , sDIRK_5_3_4
+                               , kVAERNO_5_3_4
+                               , aRK436L2SA_DIRK_6_3_4
+                               , kVAERNO_7_4_5
+                               , aRK548L2SA_DIRK_8_4_5
+                               , arkSMax
+                               ) where
 
 import           Foreign
 import           Foreign.C.Types
@@ -35,7 +70,7 @@ data SunMatrix = SunMatrix { rows :: CInt
                            , vals :: V.Vector CDouble
                            }
 
--- | This is true only if configured/ built as 64 bits
+-- | This is true only if configured / built as 64 bits
 type SunIndexType = CLong
 
 sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ
@@ -91,7 +126,7 @@ getDataFromContents len ptr = do
   rtr <- getData qtr
   vectorFromC len rtr
 
-putDataInContents :: Storable a => VS.Vector a -> Int -> Ptr b -> IO ()
+putDataInContents :: VS.Vector CDouble -> Int -> Ptr SunVector -> IO ()
 putDataInContents vec len ptr = do
   qtr <- getContentPtr ptr
   rtr <- getData qtr
