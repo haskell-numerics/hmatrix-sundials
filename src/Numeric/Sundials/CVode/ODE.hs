@@ -714,7 +714,6 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
   m  <- V.freeze qMatMut
   t  <- V.freeze tRootMut
   rs <- V.freeze gResMut
-  putStrLn $ show rs
   let f r | r == cV_SUCCESS     = SolverSuccess m d
           | r == cV_ROOT_RETURN = SolverRoot (t V.!0) rs m d
           | otherwise           = SolverError m res
