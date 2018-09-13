@@ -24,6 +24,7 @@ library
                        vector >=0.12 && <0.13,
                        template-haskell >=2.12 && <2.13,
                        containers >=0.5 && <0.6,
+                       split >=0.2 && <3,
                        hmatrix>=0.18
   extra-libraries:     sundials_arkode,
                        sundials_cvode
@@ -48,6 +49,7 @@ test-suite hmatrix-sundials-testsuite
                        vector >=0.12 && <0.13,
                        template-haskell >=2.12 && <2.13,
                        containers >=0.5 && <0.6,
+                       split >=0.2 && <3,
                        hmatrix>=0.18,
                        plots,
                        diagrams-lib,
