@@ -70,6 +70,7 @@ module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , ODEMethod(..)
                                    , StepControl(..)
                                    , SolverResult(..)
+                                   , LofLs(..)
                                    ) where
 
 import qualified Language.C.Inline as C
@@ -77,6 +78,7 @@ import qualified Language.C.Inline.Unsafe as CU
 
 import           Data.Monoid ((<>))
 import           Data.Maybe (isJust)
+import           Data.List.Split (chunksOf)
 
 import           Foreign.C.Types (CDouble, CInt, CLong)
 import           Foreign.Ptr (Ptr)
@@ -90,7 +92,8 @@ import           System.IO.Unsafe (unsafePerformIO)
 import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
-                                                cols, toLists, size, reshape)
+                                                cols, toLists, size, reshape,
+                                                subVector)
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
                                           getDataFromContents, putDataInContents,
@@ -367,7 +370,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          /* Store initial conditions */
                          for (j = 0; j < NEQ; j++) {
-                           ($vec-ptr:(double *qMatMut))[0 * $(int nTs) + j] = NV_Ith_S(y,j);
+                           ($vec-ptr:(double *qMatMut))[0 * NEQ + j] = NV_Ith_S(y,j);
                          }
 
                          /* Main time-stepping loop: calls CVode to perform the integration */
@@ -463,7 +466,7 @@ solveOdeC' ::
   -> CInt -- ^ FIXME
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ FIXME
   -> V.Vector CDouble -- ^ Desired solution times
-  -> SolverResult V.Vector V.Vector CInt CDouble
+  -> SolverResult V.Vector V.Vector LofLs CInt CDouble
 solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
           jacH (aTols, rTol) fun f0 nr g ts =
   unsafePerformIO $ do
@@ -483,7 +486,10 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       nEq = fromIntegral dim
       nTs :: CInt
       nTs = fromIntegral $ V.length ts
-  quasiMatrixRes <- createVector ((fromIntegral dim) * (fromIntegral nTs))
+      -- FIXME: This shold be a parameter!
+      nRootEvs :: CInt
+      nRootEvs = 10
+  quasiMatrixRes <- createVector ((1 + fromIntegral dim) * (fromIntegral nRootEvs + fromIntegral nTs))
   qMatMut <- V.thaw quasiMatrixRes
   diagnostics :: V.Vector CLong <- createVector 10 -- FIXME
   diagMut <- V.thaw diagnostics
@@ -502,9 +508,15 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
   let nrPre = fromIntegral nr
   gResults :: V.Vector CInt <- createVector nrPre
+  gResultss :: V.Vector CInt <- createVector $ nrPre * fromIntegral nRootEvs
+  -- FIXME: Do we need to do this here? Maybe as it will get GC'd and
+  -- we'd have to do a malloc in C otherwise :(
   gResMut <- V.thaw gResults
-  tRoot :: V.Vector CDouble <- createVector 1
+  gRessMut <- V.thaw gResultss
+  tRoot :: V.Vector CDouble <- createVector $ fromIntegral nRootEvs
   tRootMut <- V.thaw tRoot
+  nCrossings :: V.Vector CInt <- createVector 1
+  nCrossingsMut <- V.thaw nCrossings
 
   let gIO :: CDouble -> Ptr T.SunVector -> Ptr CDouble -> Ptr () -> IO CInt
       gIO x y f _ptr = do
@@ -537,7 +549,7 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          int flag;                  /* reusable error-checking flag                 */
                          int flagr;                 /* root finding flag                            */
 
-                         int i, j;                  /* reusable loop indices                        */
+                         int i, j, k, l;            /* reusable loop indices                        */
                          N_Vector y = NULL;         /* empty vector for storing solution            */
                          N_Vector tv = NULL;        /* empty vector for storing absolute tolerances */
 
@@ -621,30 +633,46 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          }
 
                          /* Store initial conditions */
+			 ($vec-ptr:(double *qMatMut))[0 * NEQ + 0] = ($vec-ptr:(double *ts))[0];
                          for (j = 0; j < NEQ; j++) {
-                           ($vec-ptr:(double *qMatMut))[0 * $(int nTs) + j] = NV_Ith_S(y,j);
+                           ($vec-ptr:(double *qMatMut))[0 * NEQ + (j + 1)] = NV_Ith_S(y,j);
                          }
 
                          /* Main time-stepping loop: calls CVode to perform the integration */
                          /* Stops when the final time has been reached                      */
-                         for (i = 1; i < $(int nTs); i++) {
-
+                         i = 1; k = 0;
+                         while (1) {
                            flag = CVode(cvode_mem, ($vec-ptr:(double *ts))[i], y, &t, CV_NORMAL); /* call integrator */
                            if (check_flag(&flag, "CVode solver failure, stopping integration", 1)) return 1;
 
                            /* Store the results for Haskell */
+			   ($vec-ptr:(double *qMatMut))[(i + k) * (NEQ + 1) + 0] = t;
                            for (j = 0; j < NEQ; j++) {
-                             ($vec-ptr:(double *qMatMut))[i * NEQ + j] = NV_Ith_S(y,j);
+                             ($vec-ptr:(double *qMatMut))[(i + k) * (NEQ + 1) + (j + 1)] = NV_Ith_S(y,j);
                            }
 
                            if (flag == CV_ROOT_RETURN) {
-                             flagr = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
-                             if (check_flag(&flagr, "CVodeGetRootInfo", 1)) return(1);
-                             ($vec-ptr:(double *tRootMut))[0] = t;
-                             flagr = flag;
-                             break;
+			     ($vec-ptr:(double *tRootMut))[k] = t;
+			     flagr = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
+			     for (l = 0; l < $(int nr); l++) {
+			       ($vec-ptr:(int *gRessMut))[l + k * $(int nr)] = ($vec-ptr:(int *gResMut))[l];
+			     }
+			     if (check_flag(&flagr, "CVodeGetRootInfo", 1)) return(1);
+			     flagr = flag;
+                             if (k > $(int nRootEvs)) {
+                               break;
+			       }
+			     else {
+			       k++;
+			     }
                            }
+			   else {
+			     i++;
+			     if (i >= $(int nTs)) break;
+			   }
                          }
+			 /* The number of actual roots we found */
+			 ($vec-ptr:(int *nCrossingsMut))[0] = k;
 
                          /* Get some final statistics on how the solve progressed */
 
@@ -713,19 +741,25 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                               (fromIntegral $ preD V.!9)
   m  <- V.freeze qMatMut
   t  <- V.freeze tRootMut
-  rs <- V.freeze gResMut
+  rs <- V.freeze gRessMut
+  n <-  V.freeze nCrossingsMut
   let f r | r == cV_SUCCESS     = SolverSuccess m d
-          | r == cV_ROOT_RETURN = SolverRoot (t V.!0) rs m d
+          | r == cV_ROOT_RETURN = SolverRoot (V.take (fromIntegral (n V.! 0)) t)
+                                             (LofLs $ take (fromIntegral (n V.! 0)) $
+                                              chunksOf (fromIntegral nr) (V.toList rs))
+                                             (subVector 0 (fromIntegral (fromIntegral (dim + 1) * (nTs + (n V.! 0)))) m)
+                                             d
           | otherwise           = SolverError m res
   return $ f $ fromIntegral res
 
-data SolverResult f g a b =
+newtype LofLs a = LofLs { lofLs :: [[a]] }
+  deriving Show
+
+data SolverResult f g h a b =
     SolverError (f b) a                            -- ^ Partial results and error code
   | SolverSuccess (f b) SundialsDiagnostics        -- ^ Results and diagnostics
-  | SolverRoot b (g a) (f b) SundialsDiagnostics   -- ^ Time at which the root was found, the root itself and the
-                                                   -- results and diagnostics. NB the final result will be at the time
-                                                   -- at which the root was found not as specified by the times given
-                                                   -- to the solver.
+  | SolverRoot (g b) (h a) (f b) SundialsDiagnostics   -- ^ Times at which the root was found, information about which root and the
+                                                   -- results and diagnostics.
     deriving Show
 
 odeSolveRootVWith' ::
@@ -743,15 +777,18 @@ odeSolveRootVWith' ::
   -> Int                                 -- ^ Dimension of the range of the roots function
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ Roots function
   -> V.Vector Double                     -- ^ Desired solution times
-  -> SolverResult Matrix Vector Int Double
+  -> SolverResult Matrix Vector LofLs Int Double
 odeSolveRootVWith' opts method control initStepSize f y0 is gg tt =
   case solveOdeC' (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
                  (coerce f) (coerce y0) (fromIntegral is) (coerce gg) (coerce tt) of
-    SolverError v c     -> SolverError                       (reshape l (coerce v)) (fromIntegral c)
-    SolverSuccess v d   -> SolverSuccess                     (reshape l (coerce v)) d
-    SolverRoot t rs v d -> SolverRoot (coerce t) (V.map fromIntegral rs) (reshape l (coerce v)) d
+    SolverError v c     -> SolverError
+                           (reshape (l + 1) (coerce v)) (fromIntegral c)
+    SolverSuccess v d   -> SolverSuccess
+                           (reshape (l + 1) (coerce v)) d
+    SolverRoot t rs v d -> SolverRoot (coerce t) (LofLs $ map (map fromIntegral) $ lofLs rs)
+                           (reshape (l + 1) (coerce v)) d
   where
     l = size y0
     scise (X aTol rTol)                          = coerce (V.replicate l aTol, rTol)

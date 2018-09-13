@@ -3,6 +3,7 @@
 import qualified Numeric.Sundials.ARKode.ODE as ARK
 import qualified Numeric.Sundials.CVode.ODE  as CV
 import           Numeric.LinearAlgebra
+import           Numeric.Sundials.ODEOpts (ODEOpts(..))
 
 import           Plots as P
 import qualified Diagrams.Prelude as D
@@ -98,15 +99,70 @@ predatorPrey _t v = [ x * a - b * x * y
     f = 1.0
     g = 1.0
 
+roberts :: Double -> Vector Double -> Vector Double
+roberts t v = vector $ robertsAux t (toList v)
+  where
+    robertsAux _ [y1, y2, y3] =
+      [ -0.04 * y1 + 1.0e4 * y2 * y3
+      , 0.04 * y1 - 1.0e4 * y2 * y3 - 3.0e7 * (y2)^(2 :: Int)
+      , 3.0e7 * (y2)^(2 :: Int)
+      ]
+    robertsAux _ _ = error "roberts RHS not defined"
+
+rootFn :: Double -> Vector Double -> Vector Double
+rootFn _ v = case xs of
+               [y1, _y2, y3] -> vector [ y1 - 0.0001
+                                       , y3 - 0.01
+                                       ]
+               _             -> error "roberts root function RHS not defined"
+  where
+    xs = toList v
+
+rootFn1 :: Double -> Vector Double -> Vector Double
+rootFn1 t _ = fromList [t - 1.0]
+
+ts :: [Double]
+ts = take 12 $ map (* 10.0) (0.04 : ts)
+
+solve :: CV.SolverResult Matrix Vector CV.LofLs Int Double
+solve = CV.odeSolveRootVWith' opts CV.BDF
+                      (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
+                      Nothing roberts (vector [1.0, 0.0, 0.0])
+                      2 rootFn
+                      (vector (0.0 : ts))
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , relTol      = 1.0e-4
+                   , absTols     = vector [1.0e-8, 1.0e-14, 1.0e-6]
+                   , initStep    = Nothing
+                   , maxFail     = 10
+                   }
+
+solve1 :: CV.SolverResult Matrix Vector CV.LofLs Int Double
+solve1 = CV.odeSolveRootVWith' opts CV.BDF
+                      (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
+                      Nothing roberts (vector [1.0, 0.0, 0.0])
+                      1 rootFn1
+                      (vector (0.0 : ts))
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , relTol      = 1.0e-4
+                   , absTols     = vector [1.0e-8, 1.0e-14, 1.0e-6]
+                   , initStep    = Nothing
+                   , maxFail     = 10
+                   }
+
 lSaxis :: [[Double]] -> P.Axis B D.V2 Double
 lSaxis xs = P.r2Axis &~ do
-  let ts = xs!!0
+  let zs = xs!!0
       us = xs!!1
       vs = xs!!2
       ws = xs!!3
-  P.linePlot' $ zip ts us
-  P.linePlot' $ zip ts vs
-  P.linePlot' $ zip ts ws
+  P.linePlot' $ zip zs us
+  P.linePlot' $ zip zs vs
+  P.linePlot' $ zip zs ws
 
 kSaxis :: [(Double, Double)] -> P.Axis B D.V2 Double
 kSaxis xs = P.r2Axis &~ do
@@ -145,7 +201,7 @@ main = do
   let maxDiffC = maximum $ map abs $
                  zipWith (-) ((toLists $ tr res2b)!!0) ((toLists $ tr res2c)!!0)
 
-  let res3 = ARK.odeSolve lorenz [-5.0, -5.0, 1.0] (fromList [0.0, 0.01 .. 10.0])
+  let res3 = ARK.odeSolve lorenz [-5.0, -5.0, 1.0] (fromList [0.0, 0.01 .. 20.0])
 
   renderRasterific "diagrams/lorenz.png"
                    (D.dims2D 500.0 500.0)
@@ -178,7 +234,28 @@ main = do
   let maxDiffPpA = maximum $ map abs $
                    zipWith (-) ((toLists $ tr res4)!!0) ((toLists $ tr res4a)!!0)
 
+  let cond5 =
+        case solve of
+          CV.SolverRoot rootTimes _ _ _ ->
+            abs (rootTimes!0 - 0.2640208751331032) / 0.2640208751331032 < 1.0e-10 &&
+            abs (rootTimes!1 - 2.0810539808782566e7) / 2.0810539808782566e7 < 1.0e-10
+          CV.SolverSuccess _ _ ->
+            error "No roots found!"
+          CV.SolverError _ _ ->
+            error "Root finding error!"
+
+  let cond6 =
+        case solve1 of
+          CV.SolverRoot rootTimes _ _ _ ->
+            abs (rootTimes!0 - 1.0) / 1.0 < 1.0e-10
+          CV.SolverSuccess _ _ ->
+            error "No roots found!"
+          CV.SolverError _ _ ->
+            error "Root finding error!"
+
   hspec $ describe "Compare results" $ do
+    it "Robertson time only" $ cond6
+    it "Robertson from SUNDIALS manual" $ cond5
     it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
     it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
     it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
