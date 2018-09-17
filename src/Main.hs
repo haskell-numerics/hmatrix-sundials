@@ -171,93 +171,95 @@ kSaxis xs = P.r2Axis &~ do
 main :: IO ()
 main = do
 
-  let res1 = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
-  renderRasterific "diagrams/brusselator.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1))
+  putStrLn $ show solve1
 
-  let res1a = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
-  renderRasterific "diagrams/brusselatorA.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1a))
+  -- let res1 = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
+  -- renderRasterific "diagrams/brusselator.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1))
 
-  let res2 = ARK.odeSolve stiffish [0.0] (fromList [0.0, 0.1 .. 10.0])
-  renderRasterific "diagrams/stiffish.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip [0.0, 0.1 .. 10.0] (concat $ toLists res2))
+  -- let res1a = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
+  -- renderRasterific "diagrams/brusselatorA.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1a))
 
-  let res2a = ARK.odeSolveV (ARK.SDIRK_5_3_4') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
+  -- let res2 = ARK.odeSolve stiffish [0.0] (fromList [0.0, 0.1 .. 10.0])
+  -- renderRasterific "diagrams/stiffish.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip [0.0, 0.1 .. 10.0] (concat $ toLists res2))
 
-  let res2b = ARK.odeSolveV (ARK.TRBDF2_3_3_2') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
+  -- let res2a = ARK.odeSolveV (ARK.SDIRK_5_3_4') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
 
-  let maxDiffA = maximum $ map abs $
-                 zipWith (-) ((toLists $ tr res2a)!!0) ((toLists $ tr res2b)!!0)
+  -- let res2b = ARK.odeSolveV (ARK.TRBDF2_3_3_2') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
 
-  let res2c = CV.odeSolveV (CV.BDF) Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
+  -- let maxDiffA = maximum $ map abs $
+  --                zipWith (-) ((toLists $ tr res2a)!!0) ((toLists $ tr res2b)!!0)
 
-  let maxDiffB = maximum $ map abs $
-                 zipWith (-) ((toLists $ tr res2a)!!0) ((toLists $ tr res2c)!!0)
+  -- let res2c = CV.odeSolveV (CV.BDF) Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
 
-  let maxDiffC = maximum $ map abs $
-                 zipWith (-) ((toLists $ tr res2b)!!0) ((toLists $ tr res2c)!!0)
+  -- let maxDiffB = maximum $ map abs $
+  --                zipWith (-) ((toLists $ tr res2a)!!0) ((toLists $ tr res2c)!!0)
 
-  let res3 = ARK.odeSolve lorenz [-5.0, -5.0, 1.0] (fromList [0.0, 0.01 .. 20.0])
+  -- let maxDiffC = maximum $ map abs $
+  --                zipWith (-) ((toLists $ tr res2b)!!0) ((toLists $ tr res2c)!!0)
 
-  renderRasterific "diagrams/lorenz.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!0) ((toLists $ tr res3)!!1))
+  -- let res3 = ARK.odeSolve lorenz [-5.0, -5.0, 1.0] (fromList [0.0, 0.01 .. 20.0])
 
-  renderRasterific "diagrams/lorenz1.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!0) ((toLists $ tr res3)!!2))
+  -- renderRasterific "diagrams/lorenz.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!0) ((toLists $ tr res3)!!1))
 
-  renderRasterific "diagrams/lorenz2.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!1) ((toLists $ tr res3)!!2))
+  -- renderRasterific "diagrams/lorenz1.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!0) ((toLists $ tr res3)!!2))
 
-  let res4 = CV.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
+  -- renderRasterific "diagrams/lorenz2.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!1) ((toLists $ tr res3)!!2))
 
-  renderRasterific "diagrams/predatorPrey.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!0) ((toLists $ tr res4)!!1))
+  -- let res4 = CV.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
 
-  renderRasterific "diagrams/predatorPrey1.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!0) ((toLists $ tr res4)!!2))
+  -- renderRasterific "diagrams/predatorPrey.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!0) ((toLists $ tr res4)!!1))
 
-  renderRasterific "diagrams/predatorPrey2.png"
-                   (D.dims2D 500.0 500.0)
-                   (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!1) ((toLists $ tr res4)!!2))
+  -- renderRasterific "diagrams/predatorPrey1.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!0) ((toLists $ tr res4)!!2))
 
-  let res4a = ARK.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
+  -- renderRasterific "diagrams/predatorPrey2.png"
+  --                  (D.dims2D 500.0 500.0)
+  --                  (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!1) ((toLists $ tr res4)!!2))
 
-  let maxDiffPpA = maximum $ map abs $
-                   zipWith (-) ((toLists $ tr res4)!!0) ((toLists $ tr res4a)!!0)
+  -- let res4a = ARK.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
 
-  let cond5 =
-        case solve of
-          CV.SolverRoot rootTimes _ _ _ ->
-            abs (rootTimes!0 - 0.2640208751331032) / 0.2640208751331032 < 1.0e-10 &&
-            abs (rootTimes!1 - 2.0810539808782566e7) / 2.0810539808782566e7 < 1.0e-10
-          CV.SolverSuccess _ _ ->
-            error "No roots found!"
-          CV.SolverError _ _ ->
-            error "Root finding error!"
+  -- let maxDiffPpA = maximum $ map abs $
+  --                  zipWith (-) ((toLists $ tr res4)!!0) ((toLists $ tr res4a)!!0)
 
-  let cond6 =
-        case solve1 of
-          CV.SolverRoot rootTimes _ _ _ ->
-            abs (rootTimes!0 - 1.0) / 1.0 < 1.0e-10
-          CV.SolverSuccess _ _ ->
-            error "No roots found!"
-          CV.SolverError _ _ ->
-            error "Root finding error!"
+ -- let cond5 =
+ --        case solve of
+ --          CV.SolverRoot rootTimes _ _ _ ->
+ --            abs (rootTimes!0 - 0.2640208751331032) / 0.2640208751331032 < 1.0e-10 &&
+ --            abs (rootTimes!1 - 2.0810539808782566e7) / 2.0810539808782566e7 < 1.0e-10
+ --          CV.SolverSuccess _ _ ->
+ --            error "No roots found!"
+ --          CV.SolverError _ _ ->
+ --            error "Root finding error!"
 
-  hspec $ describe "Compare results" $ do
-    it "Robertson time only" $ cond6
-    it "Robertson from SUNDIALS manual" $ cond5
-    it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
-    it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
-    it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
-    it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
+ --  let cond6 =
+ --        case solve1 of
+ --          CV.SolverRoot rootTimes _ _ _ ->
+ --            abs (rootTimes!0 - 1.0) / 1.0 < 1.0e-10
+ --          CV.SolverSuccess _ _ ->
+ --            error "No roots found!"
+ --          CV.SolverError _ _ ->
+ --            error "Root finding error!"
+
+  -- hspec $ describe "Compare results" $ do
+  --   it "Robertson time only" $ cond6
+  --   it "Robertson from SUNDIALS manual" $ cond5
+    -- it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
+    -- it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
+    -- it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
+    -- it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
 

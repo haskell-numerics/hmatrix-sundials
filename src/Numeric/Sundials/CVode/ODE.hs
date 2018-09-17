@@ -204,11 +204,11 @@ odeSolveVWith' ::
   -> V.Vector Double                     -- ^ Desired solution times
   -> Either (Matrix Double, Int) (Matrix Double, SundialsDiagnostics) -- ^ Error code or solution
 odeSolveVWith' opts method control initStepSize f y0 tt =
-  case solveOdeC' (fromIntegral $ maxFail opts)
+  case solveOdeC (fromIntegral $ maxFail opts)
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
                   (coerce f) (coerce y0)
-                  0 (\_ x -> x) 0 (coerce tt) of
+                  0 (\_ x -> x) 0 id (coerce tt) of
     -- Remove the time column for backwards compatibility
     SolverError v c         -> Left
                                ( subMatrix (0, 1) (V.length tt, l) (reshape (l + 1) (coerce v))
@@ -237,7 +237,7 @@ matrixToSunMatrix m = T.SunMatrix { T.rows = nr, T.cols = nc, T.vals = vs }
     -- FIXME: efficiency
     vs = V.fromList $ map coerce $ concat $ toLists m
 
-solveOdeC' ::
+solveOdeC ::
   CInt ->
   CLong ->
   CDouble ->
@@ -247,13 +247,14 @@ solveOdeC' ::
   (V.Vector CDouble, CDouble) ->
   (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector CDouble -- ^ Initial conditions
-  -> CInt -- ^ FIXME
-  -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ FIXME
-  -> CInt
+  -> CInt -- ^ Number of event equations
+  -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
+  -> CInt -- ^ Maximum number of events
+  -> (V.Vector CDouble -> V.Vector CDouble)
   -> V.Vector CDouble -- ^ Desired solution times
   -> SolverResult V.Vector V.Vector LofLs CInt CDouble
-solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
-          jacH (aTols, rTol) fun f0 nr g nRootEvs ts =
+solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
+          jacH (aTols, rTol) fun f0 nr g nRootEvs resetFun ts =
   unsafePerformIO $ do
 
   let isInitStepSize :: CInt
@@ -311,6 +312,18 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
         -- Unsafe since the function will be called many times.
         [CU.exp| int{ 0 } |]
 
+  let rIO :: Ptr T.SunVector -> Ptr T.SunVector -> IO CInt
+      rIO y f = do
+        -- Convert the pointer we get from C (y) to a vector, and then
+        -- apply the user-supplied function.
+        rImm <- resetFun <$> getDataFromContents dim y
+        putStrLn $ show rImm
+        -- Fill in the provided pointer with the resulting vector.
+        putDataInContents rImm dim f
+        -- FIXME: I don't understand what this comment means
+        -- Unsafe since the function will be called many times.
+        [CU.exp| int{ 0 } |]
+
   let isJac :: CInt
       isJac = fromIntegral $ fromEnum $ isJust jacH
       jacIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunMatrix ->
@@ -331,8 +344,9 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          int flag;                  /* reusable error-checking flag                 */
                          int flagr;                 /* root finding flag                            */
 
-                         int i, j, k, l;            /* reusable loop indices                        */
+                         int i, j, k, l, m;         /* reusable loop indices                        */
                          N_Vector y = NULL;         /* empty vector for storing solution            */
+                         N_Vector z = NULL;         /* empty vector for storing solution            */
                          N_Vector tv = NULL;        /* empty vector for storing absolute tolerances */
 
                          SUNMatrix A = NULL;        /* empty matrix for linear solver               */
@@ -351,6 +365,7 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Initialize data structures */
 
                          y = N_VNew_Serial(NEQ); /* Create serial vector for solution */
+                         z = N_VNew_Serial(NEQ); /* Create serial vector for solution */
                          if (check_flag((void *)y, "N_VNew_Serial", 0)) return 1;
                          /* Specify initial condition */
                          for (i = 0; i < NEQ; i++) {
@@ -363,7 +378,7 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Call CVodeInit to initialize the integrator memory and specify the
                           * user's right hand side function in y'=f(t,y), the inital time T0, and
                           * the initial dependent variable vector y. */
-                         flag = CVodeInit(cvode_mem,   $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
+                         flag = CVodeInit(cvode_mem, $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
                          if (check_flag(&flag, "CVodeInit", 1)) return(1);
 
                          tv = N_VNew_Serial(NEQ); /* Create serial vector for absolute tolerances */
@@ -414,12 +429,14 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                            if (check_flag(&flag, "CVDlsSetJacFn", 1)) return 1;
                          }
 
+                         /* FIXME: These only work by accident */
                          /* Store initial conditions */
 			 ($vec-ptr:(double *qMatMut))[0 * NEQ + 0] = ($vec-ptr:(double *ts))[0];
                          for (j = 0; j < NEQ; j++) {
                            ($vec-ptr:(double *qMatMut))[0 * NEQ + (j + 1)] = NV_Ith_S(y,j);
                          }
 
+                         /* FIXME: This comment is no longer correct */
                          /* Main time-stepping loop: calls CVode to perform the integration */
                          /* Stops when the final time has been reached                      */
                          i = 1; k = 0;
@@ -441,6 +458,13 @@ solveOdeC' maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 			     }
 			     if (check_flag(&flagr, "CVodeGetRootInfo", 1)) return(1);
 			     flagr = flag;
+                             $fun:(int (* rIO) (SunVector y[], SunVector z[]))(y, z);
+			     for (m = 0; m < NEQ; m++) {
+			       printf("%d: y = %e, z = %e\n", m, NV_Ith_S(y,m), NV_Ith_S(z,m));
+			     }
+                             printf("t = %e\n", t);
+                             flag = CVodeReInit(cvode_mem, t, z);
+			     if (check_flag(&flag, "CVodeReInit", 1)) return(1);
                              if (k > $(int nRootEvs)) {
                                break;
 			       }
@@ -561,10 +585,10 @@ odeSolveRootVWith' ::
   -> V.Vector Double                     -- ^ Desired solution times
   -> SolverResult Matrix Vector LofLs Int Double
 odeSolveRootVWith' opts method control initStepSize f y0 is gg tt =
-  case solveOdeC' (fromIntegral $ maxFail opts)
+  case solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
-                 (coerce f) (coerce y0) (fromIntegral is) (coerce gg) 10 (coerce tt) of
+                 (coerce f) (coerce y0) (fromIntegral is) (coerce gg) 10 id (coerce tt) of
     SolverError v c     -> SolverError
                            (reshape l1 (coerce v)) (fromIntegral c)
     SolverSuccess v d   -> SolverSuccess
