@@ -433,9 +433,6 @@ odeSolveVWith method control initStepSize f y0 tt =
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
-                   , relTol      = error "relTol"
-                   , absTols     = error "absTol"
-                   , initStep    = error "initStep"
                    , maxFail     = 10
                    }
 

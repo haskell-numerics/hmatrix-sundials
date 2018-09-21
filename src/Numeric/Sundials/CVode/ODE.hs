@@ -70,7 +70,6 @@ module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , ODEMethod(..)
                                    , StepControl(..)
                                    , SolverResult(..)
-                                   , LofLs(..)
                                    ) where
 
 import qualified Language.C.Inline as C
@@ -79,6 +78,7 @@ import qualified Language.C.Inline.Unsafe as CU
 import           Data.Monoid ((<>))
 import           Data.Maybe (isJust)
 import           Data.List.Split (chunksOf)
+import           Data.Functor.Compose
 
 import           Foreign.C.Types (CDouble, CInt, CLong)
 import           Foreign.Ptr (Ptr)
@@ -163,6 +163,8 @@ odeSolve f y0 ts =
   where
     g t x0 = V.fromList $ f t (V.toList x0)
 
+-- | A version of 'odeSolveVWith'' with reasonable default solver
+-- options.
 odeSolveVWith ::
   ODEMethod
   -> StepControl
@@ -183,9 +185,6 @@ odeSolveVWith method control initStepSize f y0 tt =
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
-                   , relTol      = error "relTol"
-                   , absTols     = error "absTol"
-                   , initStep    = error "initStep"
                    , maxFail     = 10
                    }
 
@@ -252,7 +251,7 @@ solveOdeC ::
   -> CInt -- ^ Maximum number of events
   -> (V.Vector CDouble -> V.Vector CDouble)
   -> V.Vector CDouble -- ^ Desired solution times
-  -> SolverResult V.Vector V.Vector LofLs CInt CDouble
+  -> SolverResult V.Vector V.Vector (Compose [] []) CInt CDouble
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
           jacH (aTols, rTol) fun f0 nr g nRootEvs resetFun ts =
   unsafePerformIO $ do
@@ -272,7 +271,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       nEq = fromIntegral dim
       nTs :: CInt
       nTs = fromIntegral $ V.length ts
-  quasiMatrixRes <- createVector ((1 + fromIntegral dim) * (fromIntegral nRootEvs + fromIntegral nTs))
+  quasiMatrixRes <- createVector ((1 + fromIntegral dim) * (fromIntegral (2 * nRootEvs) + fromIntegral nTs))
   qMatMut <- V.thaw quasiMatrixRes
   diagnostics :: V.Vector CLong <- createVector 10 -- FIXME
   diagMut <- V.thaw diagnostics
@@ -317,7 +316,6 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
         -- Convert the pointer we get from C (y) to a vector, and then
         -- apply the user-supplied function.
         rImm <- resetFun <$> getDataFromContents dim y
-        putStrLn $ show rImm
         -- Fill in the provided pointer with the resulting vector.
         putDataInContents rImm dim f
         -- FIXME: I don't understand what this comment means
@@ -344,9 +342,8 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          int flag;                  /* reusable error-checking flag                 */
                          int flagr;                 /* root finding flag                            */
 
-                         int i, j, k, l, m;         /* reusable loop indices                        */
+                         int i, j, k, l;            /* reusable loop indices                        */
                          N_Vector y = NULL;         /* empty vector for storing solution            */
-                         N_Vector z = NULL;         /* empty vector for storing solution            */
                          N_Vector tv = NULL;        /* empty vector for storing absolute tolerances */
 
                          SUNMatrix A = NULL;        /* empty matrix for linear solver               */
@@ -365,7 +362,6 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Initialize data structures */
 
                          y = N_VNew_Serial(NEQ); /* Create serial vector for solution */
-                         z = N_VNew_Serial(NEQ); /* Create serial vector for solution */
                          if (check_flag((void *)y, "N_VNew_Serial", 0)) return 1;
                          /* Specify initial condition */
                          for (i = 0; i < NEQ; i++) {
@@ -451,37 +447,36 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                            }
 
                            if (flag == CV_ROOT_RETURN) {
-			     ($vec-ptr:(double *tRootMut))[k] = t;
+			     ($vec-ptr:(double *tRootMut))[k / 2] = t;
 			     flagr = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
 			     for (l = 0; l < $(int nr); l++) {
-			       ($vec-ptr:(int *gRessMut))[l + k * $(int nr)] = ($vec-ptr:(int *gResMut))[l];
+			       ($vec-ptr:(int *gRessMut))[l + k * $(int nr) / 2] = ($vec-ptr:(int *gResMut))[l];
 			     }
 			     if (check_flag(&flagr, "CVodeGetRootInfo", 1)) return(1);
 			     flagr = flag;
-                             $fun:(int (* rIO) (SunVector y[], SunVector z[]))(y, z);
-			     for (m = 0; m < NEQ; m++) {
-			       printf("%d: y = %e, z = %e\n", m, NV_Ith_S(y,m), NV_Ith_S(z,m));
+
+                             /* Update the state with the supplied function */
+                             $fun:(int (* rIO) (SunVector y[], SunVector z[]))(y, y);
+
+			     ($vec-ptr:(double *qMatMut))[(i + k  + 1) * (NEQ + 1) + 0] = t;
+			     for (j = 0; j < NEQ; j++) {
+			       ($vec-ptr:(double *qMatMut))[(i + k + 1) * (NEQ + 1) + (j + 1)] = NV_Ith_S(y,j);
 			     }
-                             printf("t = %e\n", t);
-                             flag = CVodeReInit(cvode_mem, t, z);
+
+                             flag = CVodeReInit(cvode_mem, t, y);
 			     if (check_flag(&flag, "CVodeReInit", 1)) return(1);
-                             if (k > $(int nRootEvs)) {
-                               break;
-			       }
-			     else {
-			       k++;
-			     }
+                             if (k > 2 * $(int nRootEvs)) break; else k += 2;
                            }
 			   else {
 			     i++;
 			     if (i >= $(int nTs)) break;
 			   }
                          }
+
 			 /* The number of actual roots we found */
-			 ($vec-ptr:(int *nCrossingsMut))[0] = k;
+			 ($vec-ptr:(int *nCrossingsMut))[0] = k / 2;
 
                          /* Get some final statistics on how the solve progressed */
-
                          flag = CVodeGetNumSteps(cvode_mem, &nst);
                          check_flag(&flag, "CVodeGetNumSteps", 1);
                          ($vec-ptr:(long int *diagMut))[0] = nst;
@@ -550,16 +545,17 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
   rs <- V.freeze gRessMut
   n <-  V.freeze nCrossingsMut
   let f r | r == cV_SUCCESS     = SolverSuccess (subVector 0 (fromIntegral (fromIntegral (dim + 1) * nTs)) m) d
-          | r == cV_ROOT_RETURN = SolverRoot (V.take (fromIntegral (n V.! 0)) t)
-                                             (LofLs $ take (fromIntegral (n V.! 0)) $
-                                              chunksOf (fromIntegral nr) (V.toList rs))
-                                             (subVector 0 (fromIntegral (fromIntegral (dim + 1) * (nTs + (n V.! 0)))) m)
-                                             d
+          | r == cV_ROOT_RETURN =
+              if (n V.! 0) <= nRootEvs
+                then
+                  SolverRoot (V.take (fromIntegral (n V.! 0)) t)
+                             (Compose $ take (fromIntegral (n V.! 0)) $
+                              chunksOf (fromIntegral nr) (V.toList rs))
+                             (subVector 0 (fromIntegral (fromIntegral (dim + 1) * (nTs + (n V.! 0)))) m)
+                             d
+                else SolverError m (fromIntegral r)
           | otherwise           = SolverError m res
   return $ f $ fromIntegral res
-
-newtype LofLs a = LofLs { lofLs :: [[a]] }
-  deriving Show
 
 data SolverResult f g h a b =
     SolverError (f b) a                            -- ^ Partial results and error code
@@ -582,18 +578,21 @@ odeSolveRootVWith' ::
   -> V.Vector Double                     -- ^ Initial conditions
   -> Int                                 -- ^ Dimension of the range of the roots function
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ Roots function
-  -> V.Vector Double                     -- ^ Desired solution times
-  -> SolverResult Matrix Vector LofLs Int Double
-odeSolveRootVWith' opts method control initStepSize f y0 is gg tt =
+  -> Int                                  -- ^ Maximum number of events
+  -> (V.Vector Double -> V.Vector Double) -- ^ Function to reset the state
+  -> V.Vector Double                      -- ^ Desired solution times
+  -> SolverResult Matrix Vector (Compose [] []) Int Double
+odeSolveRootVWith' opts method control initStepSize f y0 is gg nRootEvs hh tt =
   case solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
-                 (coerce f) (coerce y0) (fromIntegral is) (coerce gg) 10 id (coerce tt) of
+                 (coerce f) (coerce y0) (fromIntegral is) (coerce gg) (fromIntegral nRootEvs) (coerce hh)
+                 (coerce tt) of
     SolverError v c     -> SolverError
                            (reshape l1 (coerce v)) (fromIntegral c)
     SolverSuccess v d   -> SolverSuccess
                            (reshape l1 (coerce v)) d
-    SolverRoot t rs v d -> SolverRoot (coerce t) (LofLs $ map (map fromIntegral) $ lofLs rs)
+    SolverRoot t rs v d -> SolverRoot (coerce t) (Compose $ map (map fromIntegral) $ getCompose rs)
                            (reshape l1 (coerce v)) d
   where
     l = size y0
@@ -617,7 +616,7 @@ odeSolveRootVWith' opts method control initStepSize f y0 is gg tt =
 -- factors, \(a_{y}\) is a scaling factor for the solution \(y\) and
 -- \(a_{dydt}\) is a scaling factor for the derivative of the solution \(dy/dt\).
 --
--- [ARKode](https://computation.llnl.gov/projects/sundials/arkode)
+-- [CVode](https://computation.llnl.gov/projects/sundials/cvode)
 -- allows the user to control the step size adjustment using
 -- \(\eta^{rel}|y_i| + \eta^{abs}_i\). For compatibility with
 -- [hmatrix-gsl](https://hackage.haskell.org/package/hmatrix-gsl),
