@@ -82,7 +82,7 @@ import           Data.Functor.Compose
 
 import           Foreign.C.Types (CDouble, CInt, CLong)
 import           Foreign.Ptr (Ptr)
-import           Foreign.Storable (poke)
+import           Foreign.Storable (peek, poke)
 
 import qualified Data.Vector.Storable as V
 
@@ -96,8 +96,8 @@ import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 subVector, subMatrix)
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
-                                          getDataFromContents, putDataInContents,
-                                          vectorToC, cV_SUCCESS, cV_ROOT_RETURN)
+                                          vectorToC, cV_SUCCESS, cV_ROOT_RETURN,
+                                          SunVector(..))
 import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.ODEOpts (ODEOpts(..), Jacobian, SundialsDiagnostics(..))
 
@@ -249,7 +249,7 @@ solveOdeC ::
   -> CInt -- ^ Number of event equations
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
   -> CInt -- ^ Maximum number of events
-  -> (V.Vector CDouble -> V.Vector CDouble)
+  -> (V.Vector CDouble -> V.Vector CDouble) -- ^ Function to reset the state
   -> V.Vector CDouble -- ^ Desired solution times
   -> SolverResult V.Vector V.Vector (Compose [] []) CInt CDouble
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
@@ -279,11 +279,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
   -- FIXME: The Haskell type is currently empty!
   let funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
       funIO t y f _ptr = do
-        -- Convert the pointer we get from C (y) to a vector, and then
-        -- apply the user-supplied function.
-        fImm <- fun t <$> getDataFromContents dim y
-        -- Fill in the provided pointer with the resulting vector.
-        putDataInContents fImm dim f
+        sv <- peek y
+        poke f $ SunVector { sunVecN = sunVecN sv
+                           , sunVecVals = fun t (sunVecVals sv)
+                           }
         -- FIXME: I don't understand what this comment means
         -- Unsafe since the function will be called many times.
         [CU.exp| int{ 0 } |]
@@ -302,10 +301,8 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
   let gIO :: CDouble -> Ptr T.SunVector -> Ptr CDouble -> Ptr () -> IO CInt
       gIO x y f _ptr = do
-        -- Convert the pointer we get from C (y) to a vector, and then
-        -- apply the user-supplied function.
-        gImm <- g x <$> getDataFromContents dim y
-        -- Fill in the provided pointer with the resulting vector.
+        gImm <- g x <$> (sunVecVals <$> peek y)
+        -- FIXME: We should be able to use poke somehow
         vectorToC gImm nrPre f
         -- FIXME: I don't understand what this comment means
         -- Unsafe since the function will be called many times.
@@ -313,11 +310,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
   let rIO :: Ptr T.SunVector -> Ptr T.SunVector -> IO CInt
       rIO y f = do
-        -- Convert the pointer we get from C (y) to a vector, and then
-        -- apply the user-supplied function.
-        rImm <- resetFun <$> getDataFromContents dim y
-        -- Fill in the provided pointer with the resulting vector.
-        putDataInContents rImm dim f
+        sv <- peek y
+        poke f $ SunVector { sunVecN = sunVecN sv
+                           , sunVecVals = resetFun (sunVecVals sv)
+                           }
         -- FIXME: I don't understand what this comment means
         -- Unsafe since the function will be called many times.
         [CU.exp| int{ 0 } |]
@@ -330,7 +326,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       jacIO t y _fy jacS _ptr _tmp1 _tmp2 _tmp3 = do
         case jacH of
           Nothing   -> error "Numeric.Sundials.CVode.ODE: Jacobian not defined"
-          Just jacI -> do j <- jacI t <$> getDataFromContents dim y
+          Just jacI -> do j <- jacI t <$> (sunVecVals <$> peek y)
                           poke jacS j
                           -- FIXME: I don't understand what this comment means
                           -- Unsafe since the function will be called many times.

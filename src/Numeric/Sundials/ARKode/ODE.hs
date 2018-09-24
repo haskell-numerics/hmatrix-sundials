@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wall #-}
+
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -171,7 +173,7 @@ import           Data.Maybe (isJust)
 
 import           Foreign.C.Types (CDouble, CInt, CLong)
 import           Foreign.Ptr (Ptr)
-import           Foreign.Storable (poke)
+import           Foreign.Storable (poke, peek)
 
 import qualified Data.Vector.Storable as V
 
@@ -188,7 +190,7 @@ import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
 
 import           Numeric.Sundials.ODEOpts (ODEOpts(..), Jacobian, SundialsDiagnostics(..))
 import qualified Numeric.Sundials.Arkode as T
-import           Numeric.Sundials.Arkode (getDataFromContents, putDataInContents, arkSMax,
+import           Numeric.Sundials.Arkode (arkSMax,
                                           sDIRK_2_1_2,
                                           bILLINGTON_3_3_2,
                                           tRBDF2_3_3_2,
@@ -511,14 +513,11 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
   -- We need the types that sundials expects. These are tied together
   -- in 'CLangToHaskellTypes'. FIXME: The Haskell type is currently empty!
   let funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIO x y f _ptr = do
-        -- Convert the pointer we get from C (y) to a vector, and then
-        -- apply the user-supplied function.
-        fImm <- fun x <$> getDataFromContents dim y
-        -- Fill in the provided pointer with the resulting vector.
-        putDataInContents fImm dim f
-        -- FIXME: I don't understand what this comment means
-        -- Unsafe since the function will be called many times.
+      funIO t y f _ptr = do
+        sv <- peek y
+        poke f $ T.SunVector { T.sunVecN = T.sunVecN sv
+                             , T.sunVecVals = fun t (T.sunVecVals sv)
+                             }
         [CU.exp| int{ 0 } |]
   let isJac :: CInt
       isJac = fromIntegral $ fromEnum $ isJust jacH
@@ -528,7 +527,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       jacIO t y _fy jacS _ptr _tmp1 _tmp2 _tmp3 = do
         case jacH of
           Nothing   -> error "Numeric.Sundials.ARKode.ODE: Jacobian not defined"
-          Just jacI -> do j <- jacI t <$> getDataFromContents dim y
+          Just jacI -> do j <- jacI t <$> (T.sunVecVals <$> peek y)
                           poke jacS j
                           -- FIXME: I don't understand what this comment means
                           -- Unsafe since the function will be called many times.
@@ -777,16 +776,20 @@ getButcherTable method = unsafePerformIO $ do
   btBsMut  <- V.thaw btBs
   btB2sMut <- V.thaw btB2s
   let funIOI :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIOI x y f _ptr = do
-        fImm <- funI x <$> getDataFromContents dim y
-        putDataInContents fImm dim f
+      funIOI t y f _ptr = do
+        sv <- peek y
+        poke f $ T.SunVector { T.sunVecN = T.sunVecN sv
+                             , T.sunVecVals = funI t (T.sunVecVals sv)
+                             }
         -- FIXME: I don't understand what this comment means
         -- Unsafe since the function will be called many times.
         [CU.exp| int{ 0 } |]
   let funIOE :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIOE x y f _ptr = do
-        fImm <- funE x <$> getDataFromContents dim y
-        putDataInContents fImm dim f
+      funIOE t y f _ptr = do
+        sv <- peek y
+        poke f $ T.SunVector { T.sunVecN = T.sunVecN sv
+                             , T.sunVecVals = funE t (T.sunVecVals sv)
+                             }
         -- FIXME: I don't understand what this comment means
         -- Unsafe since the function will be called many times.
         [CU.exp| int{ 0 } |]
