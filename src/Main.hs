@@ -73,7 +73,7 @@ brussRoot = CV.odeSolveRootVWith' opts CV.BDF
                       Nothing (\t v -> vector $ brusselator t (toList v))
                       (vector [1.2, 3.1, 3.0])
                       1 brussRootFn 100
-                      (\x -> let y = toList x in vector [(y!!0) + 0.5 , (y!!1), (y!!2)])
+                      (\_ev x -> let y = toList x in vector [(y!!0) + 0.5 , (y!!1), (y!!2)])
                       (vector [0.0, 0.1 .. 10.0])
   where
     opts = ODEOpts { maxNumSteps = 10000
@@ -88,6 +88,27 @@ brussRootFn _ v = case xs of
                     _            -> error "brusselator root function RHS not defined"
   where
     xs = toList v
+
+-- A sine wave that only changes direction once it reaches ±0.9.
+-- Illustrates event-specific reset function
+boundedSine :: CV.SolverResult Matrix Vector (Compose [] []) Int Double
+boundedSine = CV.odeSolveRootVWith'
+  opts
+  CV.ADAMS -- Adams-Moulton multistep method
+  (CV.XX' 1.0e-6 1.0e-10 1 1) -- adaptive step control
+  Nothing -- initial step size: use the auto-calculated one
+  (\_t y -> vector [y ! 1, - y ! 0]) -- ODE RHS
+  (vector [0, 1]) -- initial conditions
+  2 -- number of event equations
+  (\_t y -> vector [ y ! 0 - 0.9, y ! 0 + 0.9 ]) -- event equations
+  100 -- maximum number of events
+  (\ev y -> vector [y ! 0, (if ev == 0 then -1 else 1) * abs (y ! 1)]) -- event handler
+  (vector [ 2 * pi * k / 360 | k <- [0..360]]) -- solution times
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , maxFail     = 10
+                   }
 
 stiffish :: Double -> [Double] -> [Double]
 stiffish t v = [ lamda * u + 1.0 / (1.0 + t * t) - lamda * atan t ]
@@ -153,7 +174,7 @@ solve = CV.odeSolveRootVWith' opts CV.BDF
                       (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
                       Nothing roberts (vector [1.0, 0.0, 0.0])
                       2 rootFn 100
-                      id
+                      (const id)
                       (vector (0.0 : ts))
   where
     opts = ODEOpts { maxNumSteps = 10000
@@ -166,7 +187,7 @@ solve2 = CV.odeSolveRootVWith' opts CV.BDF
                       (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
                       Nothing roberts (vector [1.0, 0.0, 0.0])
                       2 rootFn 100
-                      (const $ vector [1.0, 0.0, 0.0])
+                      (const . const $ vector [1.0, 0.0, 0.0])
                       (vector (0.0 : ts))
   where
     opts = ODEOpts { maxNumSteps = 10000
@@ -179,7 +200,7 @@ solve1 = CV.odeSolveRootVWith' opts CV.BDF
                       (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
                       Nothing roberts (vector [1.0, 0.0, 0.0])
                       1 rootFn1 100
-                      (\x -> let y = toList x in vector [2.0, y!!1, y!!2])
+                      (\_ev x -> let y = toList x in vector [2.0, y!!1, y!!2])
                       (vector (0.0 : ts))
   where
     opts = ODEOpts { maxNumSteps = 10000
@@ -196,6 +217,15 @@ lSaxis xs = P.r2Axis &~ do
   P.linePlot' $ zip zs us
   P.linePlot' $ zip zs vs
   P.linePlot' $ zip zs ws
+
+
+lSaxis2 :: [[Double]] -> P.Axis B D.V2 Double
+lSaxis2 xs = P.r2Axis &~ do
+  let zs = xs!!0
+      us = xs!!1
+      vs = xs!!2
+  P.linePlot' $ zip zs us
+  P.linePlot' $ zip zs vs
 
 kSaxis :: [(Double, Double)] -> P.Axis B D.V2 Double
 kSaxis xs = P.r2Axis &~ do
@@ -301,6 +331,17 @@ main = do
         "diagrams/brussRoot.png"
         (D.dims2D 500.0 500.0)
         (renderAxis $ lSaxis $ toLists $ tr m)
+    CV.SolverSuccess m _ ->
+      error $ "No roots found!\n" ++ show m
+    CV.SolverError m n ->
+      error $ "No roots found!\n" ++ show m ++ "\n" ++ show n
+
+  case boundedSine of
+    CV.SolverRoot _a _b m _c -> do
+      renderRasterific
+        "diagrams/boundedSine.png"
+        (D.dims2D 500.0 500.0)
+        (renderAxis $ lSaxis2 $ toLists $ tr m)
     CV.SolverSuccess m _ ->
       error $ "No roots found!\n" ++ show m
     CV.SolverError m n ->
