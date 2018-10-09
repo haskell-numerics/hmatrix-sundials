@@ -207,7 +207,7 @@ odeSolveVWith' opts method control initStepSize f y0 tt =
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
                   (coerce f) (coerce y0)
-                  0 (\_ x -> x) 0 id (coerce tt) of
+                  0 (\_ x -> x) 0 (const id) (coerce tt) of
     -- Remove the time column for backwards compatibility
     SolverError v c         -> Left
                                ( subMatrix (0, 1) (V.length tt, l) (reshape (l + 1) (coerce v))
@@ -249,7 +249,10 @@ solveOdeC ::
   -> CInt -- ^ Number of event equations
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
   -> CInt -- ^ Maximum number of events
-  -> (V.Vector CDouble -> V.Vector CDouble) -- ^ Function to reset the state
+  -> (Int -> V.Vector CDouble -> V.Vector CDouble)
+      -- ^ Function to reset the state. The 'Int' argument is the 0-based
+      -- number of the event that has occurred. If multiple events have
+      -- occurred, only the first one is reported.
   -> V.Vector CDouble -- ^ Desired solution times
   -> SolverResult V.Vector V.Vector (Compose [] []) CInt CDouble
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
@@ -311,8 +314,12 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
   let rIO :: Ptr T.SunVector -> Ptr T.SunVector -> IO CInt
       rIO y f = do
         sv <- peek y
+        -- Contrary to the documentation, it appears that CVodeGetRootInfo
+        -- may use both 1 and -1 to indicate a root, depending on the
+        -- direction of the sign change. See near the end of cvRootfind.
+        Just event_index <- V.findIndex (\n -> n == 1 || n == -1) <$> V.freeze gResMut
         poke f $ SunVector { sunVecN = sunVecN sv
-                           , sunVecVals = resetFun (sunVecVals sv)
+                           , sunVecVals = resetFun event_index (sunVecVals sv)
                            }
         -- FIXME: I don't understand what this comment means
         -- Unsafe since the function will be called many times.
@@ -452,6 +459,9 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 			     flagr = flag;
 
                              /* Update the state with the supplied function */
+                             /* This call implicitly uses the data in the gResMut array
+                                to find out which event has occurred and pass this
+                                to the reset function. */
                              $fun:(int (* rIO) (SunVector y[], SunVector z[]))(y, y);
 
 			     ($vec-ptr:(double *qMatMut))[(i + k  + 1) * (NEQ + 1) + 0] = t;
@@ -575,7 +585,10 @@ odeSolveRootVWith' ::
   -> Int                                 -- ^ Dimension of the range of the roots function
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ Roots function
   -> Int                                  -- ^ Maximum number of events
-  -> (V.Vector Double -> V.Vector Double) -- ^ Function to reset the state
+  -> (Int -> V.Vector Double -> V.Vector Double)
+      -- ^ Function to reset the state. The 'Int' argument is the 0-based
+      -- number of the event that has occurred. If multiple events have
+      -- occurred, only the first one is reported.
   -> V.Vector Double                      -- ^ Desired solution times
   -> SolverResult Matrix Vector (Compose [] []) Int Double
 odeSolveRootVWith' opts method control initStepSize f y0 is gg nRootEvs hh tt =
