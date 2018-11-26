@@ -67,48 +67,84 @@ _brussJac _t x = (3><3) [ (-(w + 1.0)) + 2.0 * u * v, w - 2.0 * u * v, (-w)
     w = y !! 2
     eps = 5.0e-6
 
-brussRoot :: CV.SolverResult Matrix Vector (Compose [] []) Int Double
-brussRoot = CV.odeSolveRootVWith' opts CV.BDF
-                      (CV.XX' 1.0e-6 1.0e-10 1 1)
-                      Nothing (\t v -> vector $ brusselator t (toList v))
+brussRoot :: CV.SolverResult
+brussRoot = CV.odeSolveRootVWith' opts
+                      (\t v -> vector $ brusselator t (toList v))
                       (vector [1.2, 3.1, 3.0])
-                      1 brussRootFn 100
-                      (\_ev x -> let y = toList x in vector [(y!!0) + 0.5 , (y!!1), (y!!2)])
+                      events 100
                       (vector [0.0, 0.1 .. 10.0])
   where
+    events =
+      [ CV.EventSpec { CV.eventCondition = brussRootFn
+                     , CV.eventUpdate =
+                         \_ev x -> let y = toList x in vector [(y!!0) + 0.5 , (y!!1), (y!!2)]
+                     , CV.eventDirection = CV.AnyDirection
+                     }
+      ]
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
                    , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.XX' 1.0e-6 1.0e-10 1 1
+                   , initStep = Nothing
                    }
 
-brussRootFn :: Double -> Vector Double -> Vector Double
+brussRootFn :: Double -> Vector Double -> Double
 brussRootFn _ v = case xs of
-                    [y1, _y2, y3] -> vector [ y1 - y3
-                                            ]
+                    [y1, _y2, y3] -> y1 - y3
                     _            -> error "brusselator root function RHS not defined"
   where
     xs = toList v
 
+exponential :: CV.SolverResult
+exponential = CV.odeSolveRootVWith' opts
+                      (\t y -> vector [y ! 0])
+                      (vector [1])
+                      events 100
+                      (vector [ fromIntegral k / 100 | k <- [0..(22::Int)]])
+  where
+    events =
+      [ CV.EventSpec { CV.eventCondition = \t y -> y ! 0 - 1.1
+                     , CV.eventUpdate = \ev y -> vector [ 2 ]
+                     , CV.eventDirection = CV.Upwards
+                     }
+      ]
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.XX' 1.0e-6 1.0e-10 1 1
+                   , initStep = Nothing
+                   }
+
 -- A sine wave that only changes direction once it reaches ±0.9.
 -- Illustrates event-specific reset function
-boundedSine :: CV.SolverResult Matrix Vector (Compose [] []) Int Double
+boundedSine :: CV.SolverResult
 boundedSine = CV.odeSolveRootVWith'
   opts
-  CV.ADAMS -- Adams-Moulton multistep method
-  (CV.XX' 1.0e-6 1.0e-10 1 1) -- adaptive step control
-  Nothing -- initial step size: use the auto-calculated one
   (\_t y -> vector [y ! 1, - y ! 0]) -- ODE RHS
   (vector [0, 1]) -- initial conditions
-  2 -- number of event equations
-  (\_t y -> vector [ y ! 0 - 0.9, y ! 0 + 0.9 ]) -- event equations
+  events
   100 -- maximum number of events
-  (\ev y -> vector [y ! 0, (if ev == 0 then -1 else 1) * abs (y ! 1)]) -- event handler
   (vector [ 2 * pi * k / 360 | k <- [0..360]]) -- solution times
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
                    , maxFail     = 10
+                   , odeMethod = CV.ADAMS
+                   , stepControl = CV.XX' 1.0e-6 1.0e-10 1 1
+                   , initStep = Nothing
                    }
+    events =
+      [ CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 - 0.9
+                     , CV.eventUpdate = \_ y -> vector [ y ! 0, - abs (y ! 1) ]
+                     , CV.eventDirection = CV.Upwards
+                     }
+      , CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 + 0.9
+                     , CV.eventUpdate = \_ y -> vector [ y ! 0, abs (y ! 1) ]
+                     , CV.eventDirection = CV.Downwards
+                     }
+      ]
 
 stiffish :: Double -> [Double] -> [Double]
 stiffish t v = [ lamda * u + 1.0 / (1.0 + t * t) - lamda * atan t ]
@@ -154,59 +190,77 @@ roberts t v = vector $ robertsAux t (toList v)
       ]
     robertsAux _ _ = error "roberts RHS not defined"
 
-rootFn :: Double -> Vector Double -> Vector Double
-rootFn _ v = case xs of
-               [y1, _y2, y3] -> vector [ y1 - 0.0001
-                                       , y3 - 0.01
-                                       ]
-               _             -> error "roberts root function RHS not defined"
-  where
-    xs = toList v
-
-rootFn1 :: Double -> Vector Double -> Vector Double
-rootFn1 t _ = fromList [t - 1.0]
-
 ts :: [Double]
 ts = take 12 $ map (* 10.0) (0.04 : ts)
 
-solve :: CV.SolverResult Matrix Vector (Compose [] []) Int Double
-solve = CV.odeSolveRootVWith' opts CV.BDF
-                      (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
-                      Nothing roberts (vector [1.0, 0.0, 0.0])
-                      2 rootFn 100
-                      (const id)
+solve :: CV.SolverResult
+solve = CV.odeSolveRootVWith' opts
+                      roberts (vector [1.0, 0.0, 0.0])
+                      events 100
                       (vector (0.0 : ts))
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
                    , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6])
+                   , initStep = Nothing
                    }
+    events =
+      [ CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 - 0.0001
+                     , CV.eventUpdate = const id
+                     , CV.eventDirection = CV.AnyDirection
+                     }
+      , CV.EventSpec { CV.eventCondition = \_t y -> y ! 2 - 0.01
+                     , CV.eventUpdate = const id
+                     , CV.eventDirection = CV.AnyDirection
+                     }
+      ]
 
-solve2 :: CV.SolverResult Matrix Vector (Compose [] []) Int Double
-solve2 = CV.odeSolveRootVWith' opts CV.BDF
-                      (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
-                      Nothing roberts (vector [1.0, 0.0, 0.0])
-                      2 rootFn 100
-                      (const . const $ vector [1.0, 0.0, 0.0])
+solve2 :: CV.SolverResult
+solve2 = CV.odeSolveRootVWith' opts
+                      roberts (vector [1.0, 0.0, 0.0])
+                      events 100
                       (vector (0.0 : ts))
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
                    , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6])
+                   , initStep = Nothing
                    }
+    events =
+      [ CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 - 0.0001
+                     , CV.eventUpdate = upd
+                     , CV.eventDirection = CV.AnyDirection
+                     }
+      , CV.EventSpec { CV.eventCondition = \_t y -> y ! 2 - 0.01
+                     , CV.eventUpdate = upd
+                     , CV.eventDirection = CV.AnyDirection
+                     }
+      ]
+    upd _ _ = vector [1.0, 0.0, 0.0]
 
-solve1 :: CV.SolverResult Matrix Vector (Compose [] []) Int Double
-solve1 = CV.odeSolveRootVWith' opts CV.BDF
-                      (CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6]))
-                      Nothing roberts (vector [1.0, 0.0, 0.0])
-                      1 rootFn1 100
-                      (\_ev x -> let y = toList x in vector [2.0, y!!1, y!!2])
+solve1 :: CV.SolverResult
+solve1 = CV.odeSolveRootVWith' opts
+                      roberts (vector [1.0, 0.0, 0.0])
+                      events 100
                       (vector (0.0 : ts))
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
                    , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6])
+                   , initStep = Nothing
                    }
+    events =
+      [ CV.EventSpec { CV.eventCondition = \t _y -> t - 1.0
+                     , CV.eventUpdate = \t y -> vector [2.0, y!1, y!2]
+                     , CV.eventDirection = CV.AnyDirection
+                     }
+      ]
 
 lSaxis :: [[Double]] -> P.Axis B D.V2 Double
 lSaxis xs = P.r2Axis &~ do
@@ -217,7 +271,6 @@ lSaxis xs = P.r2Axis &~ do
   P.linePlot' $ zip zs us
   P.linePlot' $ zip zs vs
   P.linePlot' $ zip zs ws
-
 
 lSaxis2 :: [[Double]] -> P.Axis B D.V2 Double
 lSaxis2 xs = P.r2Axis &~ do
@@ -231,9 +284,9 @@ kSaxis :: [(Double, Double)] -> P.Axis B D.V2 Double
 kSaxis xs = P.r2Axis &~ do
   P.linePlot' xs
 
+
 main :: IO ()
 main = do
-
   let res1 = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
   renderRasterific "diagrams/brusselator.png"
                    (D.dims2D 500.0 500.0)
@@ -299,53 +352,62 @@ main = do
 
   let cond5 =
         case solve of
-          CV.SolverRoot rootTimes _ _ _ ->
-            abs (rootTimes!0 - 0.2640208751331032) / 0.2640208751331032 < 1.0e-10 &&
-            abs (rootTimes!1 - 2.0786731062254436e7) / 2.0786731062254436e7 < 1.0e-10
-          CV.SolverSuccess _ _ ->
-            error "No roots found!"
+          CV.SolverSuccess events _ _ -> do
+            length events `shouldBe` 2
+            (abs (CV.eventTime (events!!0) - 0.2640208751331032) / 0.2640208751331032 < 1.0e-8) `shouldBe` True
+            (abs (CV.eventTime (events!!1) - 2.0786731062254436e7) / 2.0786731062254436e7 < 1.0e-8) `shouldBe` True
           CV.SolverError _ _ ->
             error "Root finding error!"
 
   let cond6 =
         case solve1 of
-          CV.SolverRoot rootTimes _ _ _ ->
-            abs (rootTimes!0 - 1.0) / 1.0 < 1.0e-10
-          CV.SolverSuccess _ _ ->
-            error "No roots found!"
+          CV.SolverSuccess events _ _ -> do
+            length events `shouldBe` 1
+            (abs (CV.eventTime (events!!0) - 1.0) / 1.0 < 1.0e-10) `shouldBe` True
           CV.SolverError _ _ ->
             error "Root finding error!"
 
   let cond7 =
         case solve2 of
-          CV.SolverRoot _ _ _ _ ->
-            error "Roots found!"
-          CV.SolverSuccess _ _ ->
-            error "No roots found!"
+          CV.SolverSuccess {} ->
+            error "Solver returned Success"
           CV.SolverError _ _ ->
             True
 
   case brussRoot of
-    CV.SolverRoot _a _b m _c -> do
+    CV.SolverSuccess events m _diagn -> do
       renderRasterific
         "diagrams/brussRoot.png"
         (D.dims2D 500.0 500.0)
         (renderAxis $ lSaxis $ toLists $ tr m)
-    CV.SolverSuccess m _ ->
-      error $ "No roots found!\n" ++ show m
     CV.SolverError m n ->
-      error $ "No roots found!\n" ++ show m ++ "\n" ++ show n
+      expectationFailure $ show n
 
-  case boundedSine of
-    CV.SolverRoot _a _b m _c -> do
-      renderRasterific
-        "diagrams/boundedSine.png"
-        (D.dims2D 500.0 500.0)
-        (renderAxis $ lSaxis2 $ toLists $ tr m)
-    CV.SolverSuccess m _ ->
-      error $ "No roots found!\n" ++ show m
-    CV.SolverError m n ->
-      error $ "No roots found!\n" ++ show m ++ "\n" ++ show n
+  let boundedSineSpec = do
+        case boundedSine of
+          CV.SolverSuccess events m _ -> do
+            renderRasterific
+              "diagrams/boundedSine.png"
+              (D.dims2D 500.0 500.0)
+              (renderAxis $ lSaxis2 $ toLists $ tr m)
+            length events `shouldBe` 3
+            map CV.rootDirection events `shouldBe` [CV.Upwards, CV.Downwards, CV.Upwards]
+            map CV.eventIndex events `shouldBe` [0, 1, 0]
+            all ((< 1e-8) . abs) (zipWith (-)
+              (map CV.eventTime events)
+              [1.1197660081724263,3.3592952656818404,5.5988203973243])
+                `shouldBe` True
+          CV.SolverError m n ->
+            expectationFailure "Solver error"
+  let exponentialSpec = do
+        case exponential of
+          CV.SolverSuccess events _m _diagn -> do
+            length events `shouldBe` 1
+            (abs (CV.eventTime (events!!0) - log 1.1) < 1e-4) `shouldBe` True
+            CV.rootDirection (events!!0) `shouldBe` CV.Upwards
+            CV.eventIndex (events!!0) `shouldBe` 0
+          CV.SolverError m n ->
+            expectationFailure $ show n
 
   hspec $ describe "Compare results" $ do
     it "Robertson should fail" $ cond7
@@ -355,4 +417,5 @@ main = do
     it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
     it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
     it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
-
+    it "Bounded sine events" $ boundedSineSpec
+    it "Exponential events" $ exponentialSpec

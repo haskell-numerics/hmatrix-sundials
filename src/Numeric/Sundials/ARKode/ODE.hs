@@ -436,6 +436,9 @@ odeSolveVWith method control initStepSize f y0 tt =
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
                    , maxFail     = 10
+                   , odeMethod   = error "ARKode: unexpected use of ODEOpts.odeMethod"
+                   , stepControl = error "ARKode: unexpected use of ODEOpts.stepControl"
+                   , initStep    = error "ARKode: unexpected use of ODEOpts.initStep"
                    }
 
 odeSolveVWith' ::
