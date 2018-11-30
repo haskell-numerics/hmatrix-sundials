@@ -70,6 +70,7 @@ _brussJac _t x = (3><3) [ (-(w + 1.0)) + 2.0 * u * v, w - 2.0 * u * v, (-w)
 brussRoot :: CV.SolverResult
 brussRoot = CV.odeSolveRootVWith' opts
                       (\t v -> vector $ brusselator t (toList v))
+                      Nothing
                       (vector [1.2, 3.1, 3.0])
                       events 100
                       (vector [0.0, 0.1 .. 10.0])
@@ -99,6 +100,7 @@ brussRootFn _ v = case xs of
 exponential :: CV.SolverResult
 exponential = CV.odeSolveRootVWith' opts
                       (\t y -> vector [y ! 0])
+                      Nothing
                       (vector [1])
                       events 100
                       (vector [ fromIntegral k / 100 | k <- [0..(22::Int)]])
@@ -123,6 +125,7 @@ boundedSine :: CV.SolverResult
 boundedSine = CV.odeSolveRootVWith'
   opts
   (\_t y -> vector [y ! 1, - y ! 0]) -- ODE RHS
+  Nothing
   (vector [0, 1]) -- initial conditions
   events
   100 -- maximum number of events
@@ -195,7 +198,7 @@ ts = take 12 $ map (* 10.0) (0.04 : ts)
 
 solve :: CV.SolverResult
 solve = CV.odeSolveRootVWith' opts
-                      roberts (vector [1.0, 0.0, 0.0])
+                      roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
                       (vector (0.0 : ts))
   where
@@ -219,7 +222,7 @@ solve = CV.odeSolveRootVWith' opts
 
 solve2 :: CV.SolverResult
 solve2 = CV.odeSolveRootVWith' opts
-                      roberts (vector [1.0, 0.0, 0.0])
+                      roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
                       (vector (0.0 : ts))
   where
@@ -244,7 +247,7 @@ solve2 = CV.odeSolveRootVWith' opts
 
 solve1 :: CV.SolverResult
 solve1 = CV.odeSolveRootVWith' opts
-                      roberts (vector [1.0, 0.0, 0.0])
+                      roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
                       (vector (0.0 : ts))
   where
