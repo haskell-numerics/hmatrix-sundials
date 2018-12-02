@@ -12,7 +12,7 @@ module Numeric.Sundials.Arkode ( getDataFromContents
                                , cV_ROOT_RETURN
                                , sunCtx
                                , SunMatrix(..)
-                               , SunVector
+                               , SunVector(..)
                                , hEUN_EULER_2_1_2
                                , bOGACKI_SHAMPINE_4_2_3
                                , aRK324L2SA_ERK_4_2_3
@@ -64,7 +64,10 @@ import qualified Data.Vector.Storable as V
 #include <cvode/cvode.h>
 
 
-data SunVector
+data SunVector = SunVector { sunVecN    :: CLong
+                           , sunVecVals :: V.Vector CDouble
+                           }
+
 data SunMatrix = SunMatrix { rows :: CInt
                            , cols :: CInt
                            , vals :: V.Vector CDouble
@@ -104,6 +107,15 @@ putMatrixDataFromContents mat ptr = do
   rtr <- getMatrixData qtr
   vectorToC vs (fromIntegral $ rs * cs) rtr
 
+instance Storable SunVector where
+  poke p v    = putDataInContents (sunVecVals v) (fromIntegral $ sunVecN v) p
+  peek p      = do (l, v) <- getDataFromContents p
+                   return $ SunVector { sunVecN = l
+                                      , sunVecVals = v
+                                      }
+  sizeOf _    = error "sizeOf not supported for SunVector"
+  alignment _ = error "alignment not supported for SunVector"
+
 instance Storable SunMatrix where
   poke        = flip putMatrixDataFromContents
   peek        = getMatrixDataFromContents
@@ -120,16 +132,19 @@ vectorToC vec len ptr = do
   ptr' <- newForeignPtr_ ptr
   VS.copy (VM.unsafeFromForeignPtr0 ptr' len) vec
 
-getDataFromContents :: Int -> Ptr SunVector -> IO (VS.Vector CDouble)
-getDataFromContents len ptr = do
+getDataFromContents :: Ptr SunVector -> IO (CLong, VS.Vector CDouble)
+getDataFromContents ptr = do
   qtr <- getContentPtr ptr
   rtr <- getData qtr
-  vectorFromC len rtr
+  len' <- getLength qtr
+  v <- vectorFromC (fromIntegral len') rtr
+  return (len', v)
 
 putDataInContents :: VS.Vector CDouble -> Int -> Ptr SunVector -> IO ()
 putDataInContents vec len ptr = do
   qtr <- getContentPtr ptr
   rtr <- getData qtr
+  putLength (fromIntegral len) qtr
   vectorToC vec len rtr
 
 #def typedef struct _generic_N_Vector SunVector;
@@ -159,6 +174,12 @@ getContentPtr ptr = (#peek SunVector, content) ptr
 
 getData :: Storable a => Ptr b -> IO a
 getData ptr = (#peek SunContent, data) ptr
+
+getLength :: Ptr b -> IO SunIndexType
+getLength ptr = (#peek SunContent, length) ptr
+
+putLength :: SunIndexType -> Ptr b -> IO ()
+putLength l ptr = (#poke SunContent, length) ptr l
 
 cV_SUCCESS :: Int
 cV_SUCCESS = #const CV_SUCCESS
