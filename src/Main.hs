@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import qualified Numeric.Sundials.ARKode.ODE as ARK
@@ -55,17 +56,34 @@ brusselator _t x = [ a - (w + 1) * u + v * u * u
     v = x !! 1
     w = x !! 2
 
-_brussJac :: Double -> Vector Double -> Matrix Double
-_brussJac _t x = (3><3) [ (-(w + 1.0)) + 2.0 * u * v, w - 2.0 * u * v, (-w)
-                       , u * u                     , (-(u * u))     , 0.0
-                       , (-u)                      , u              , (-1.0) / eps - u
-                       ]
+brussJac :: Double -> Vector Double -> Matrix Double
+brussJac _t x = tr $
+  (3><3) [ (-(w + 1.0)) + 2.0 * u * v, w - 2.0 * u * v, (-w)
+         , u * u                     , (-(u * u))     , 0.0
+         , (-u)                      , u              , (-1.0) / eps - u
+         ]
   where
     y = toList x
     u = y !! 0
     v = y !! 1
     w = y !! 2
     eps = 5.0e-6
+
+brusselatorWithJacobian :: Vector Double -> Bool -> CV.SolverResult
+brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
+                      (\t v -> vector $ brusselator t (toList v))
+                      (if usejac then Just brussJac else Nothing)
+                      (vector [1.2, 3.1, 3.0])
+                      [] 0
+                      ts
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.XX' 1.0e-6 1.0e-10 1 1
+                   , initStep = Nothing
+                   }
 
 brussRoot :: CV.SolverResult
 brussRoot = CV.odeSolveRootVWith' opts
@@ -193,6 +211,13 @@ roberts t v = vector $ robertsAux t (toList v)
       ]
     robertsAux _ _ = error "roberts RHS not defined"
 
+robertsJac :: Double -> Vector Double -> Matrix Double
+robertsJac _t (toList -> [y1, y2, y3]) = (3 >< 3)
+  [ -0.04, 1.0e4 * y3, 1.0e4 * y2
+  , 0.04, -1.0e4*y3 - 3.0e7*2*y2, -1.0e4*y2
+  , 0, 3.0e7*2*y2, 0
+  ]
+
 ts :: [Double]
 ts = take 12 $ map (* 10.0) (0.04 : ts)
 
@@ -264,6 +289,20 @@ solve1 = CV.odeSolveRootVWith' opts
                      , CV.eventDirection = CV.AnyDirection
                      }
       ]
+
+robertsonWithJacobian :: Vector Double -> Bool -> CV.SolverResult
+robertsonWithJacobian ts usejac = CV.odeSolveRootVWith' opts
+                      roberts (if usejac then Just robertsJac else Nothing) (vector [1.0, 0.0, 0.0])
+                      [] 0
+                      ts
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6])
+                   , initStep = Nothing
+                   }
 
 lSaxis :: [[Double]] -> P.Axis B D.V2 Double
 lSaxis xs = P.r2Axis &~ do
@@ -412,10 +451,24 @@ main = do
           CV.SolverError m n ->
             expectationFailure $ show n
 
+      robertsonJac = do
+        let ts = vector [0, 1 .. 10]
+            CV.SolverSuccess _ m1 _ = robertsonWithJacobian ts True
+            CV.SolverSuccess _ m2 _ = robertsonWithJacobian ts False
+        (norm_2 (m1-m2) < 1e-4) `shouldBe` True
+
+      brusselatorJac = do
+        let ts = [0.0, 0.1 .. 10.0]
+            CV.SolverSuccess _ m1 _ = brusselatorWithJacobian (vector ts) True
+            CV.SolverSuccess _ m2 _ = brusselatorWithJacobian (vector ts) False
+        (norm_2 (m1-m2) < 1e-3) `shouldBe` True
+
   hspec $ describe "Compare results" $ do
     it "Robertson should fail" $ cond7
     it "Robertson time only" $ cond6
     it "Robertson from SUNDIALS manual" $ cond5
+    it "Robertson with explicit Jacobian up to t=10" robertsonJac
+    it "Brusselator with explicit Jacobian" brusselatorJac
     it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
     it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
     it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
