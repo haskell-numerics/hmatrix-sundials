@@ -641,13 +641,16 @@ data SolverResult
 
 odeSolveRootVWith' ::
   ODEOpts
-  -> (Double -> V.Vector Double -> V.Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
-  -> V.Vector Double                     -- ^ Initial conditions
+  -> (Double -> V.Vector Double -> V.Vector Double)
+      -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  -> Maybe (Double -> Vector Double -> Matrix Double)
+      -- ^ The Jacobian (optional)
+  -> V.Vector Double                      -- ^ Initial conditions
   -> [EventSpec]                          -- ^ Event specifications
   -> Int                                  -- ^ Maximum number of events
   -> V.Vector Double                      -- ^ Desired solution times
   -> SolverResult
-odeSolveRootVWith' opts f y0 event_specs nRootEvs tt =
+odeSolveRootVWith' opts f mb_jacobian y0 event_specs nRootEvs tt =
   solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
@@ -662,8 +665,7 @@ odeSolveRootVWith' opts f y0 event_specs nRootEvs tt =
     scise (XX' aTol rTol yScale _yDotScale)      = coerce (V.replicate l aTol, yScale * rTol)
     -- FIXME; Should we check that the length of ss is correct?
     scise (ScXX' aTol rTol yScale _yDotScale ss) = coerce (V.map (* aTol) ss, yScale * rTol)
-    jacH = fmap (\g t v -> matrixToSunMatrix $ g (coerce t) (coerce v)) $
-           getJacobian $ odeMethod opts
+    jacH = fmap (\g t v -> matrixToSunMatrix $ g (coerce t) (coerce v)) $ mb_jacobian
     event_equations :: CDouble -> Vector CDouble -> Vector CDouble
     event_equations t y = V.fromList $
       map (\ev -> coerce (eventCondition ev) t y) event_specs
@@ -682,15 +684,16 @@ odeSolveWithEvents
   :: [EventSpec] -- ^ event specifications
   -> Int -- ^ max number of events
   -> (Double -> V.Vector Double -> V.Vector Double)     -- ^ RHS of the ODE system
+  -> Maybe (Double -> Vector Double -> Matrix Double)   -- ^ RHS of the ODE system
   -> V.Vector Double                                    -- ^ initial conditions
   -> ODEOpts
   -> V.Vector Double -- ^ solution times
   -> Either Int SundialsSolution -- ^ either an error code or a solution
-odeSolveWithEvents event_specs max_events rhs initial opts sol_times =
+odeSolveWithEvents event_specs max_events rhs mb_jacobian initial opts sol_times =
   let
     result :: SolverResult
     result =
-      odeSolveRootVWith' opts rhs initial event_specs
+      odeSolveRootVWith' opts rhs mb_jacobian initial event_specs
         max_events sol_times
   in
     case result of
