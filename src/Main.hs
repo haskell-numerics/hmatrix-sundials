@@ -11,6 +11,7 @@ import qualified Diagrams.Prelude as D
 import           Diagrams.Backend.Rasterific
 
 import           Control.Lens
+import           Control.Monad
 
 import           Data.Functor.Compose
 
@@ -435,10 +436,8 @@ main = do
             length events `shouldBe` 3
             map CV.rootDirection events `shouldBe` [CV.Upwards, CV.Downwards, CV.Upwards]
             map CV.eventIndex events `shouldBe` [0, 1, 0]
-            all ((< 1e-8) . abs) (zipWith (-)
-              (map CV.eventTime events)
-              [1.1197660081724263,3.3592952656818404,5.5988203973243])
-                `shouldBe` True
+            forM_ (zip (map CV.eventTime events) [1.1197660081724263,3.3592952656818404,5.5988203973243]) $ \(et_got, et_exp) ->
+              et_got `shouldSatisfy` ((< 1e-8) . abs . subtract et_exp)
           CV.SolverError m n ->
             expectationFailure "Solver error"
   let exponentialSpec = do
@@ -455,13 +454,13 @@ main = do
         let ts = vector [0, 1 .. 10]
             CV.SolverSuccess _ m1 _ = robertsonWithJacobian ts True
             CV.SolverSuccess _ m2 _ = robertsonWithJacobian ts False
-        (norm_2 (m1-m2) < 1e-4) `shouldBe` True
+        norm_2 (m1-m2) `shouldSatisfy` (< 1e-4)
 
       brusselatorJac = do
         let ts = [0.0, 0.1 .. 10.0]
             CV.SolverSuccess _ m1 _ = brusselatorWithJacobian (vector ts) True
             CV.SolverSuccess _ m2 _ = brusselatorWithJacobian (vector ts) False
-        (norm_2 (m1-m2) < 1e-3) `shouldBe` True
+        norm_2 (m1-m2) `shouldSatisfy` (< 1e-3)
 
   hspec $ describe "Compare results" $ do
     it "Robertson should fail" $ cond7
