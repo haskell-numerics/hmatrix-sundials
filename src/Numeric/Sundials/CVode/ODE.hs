@@ -681,15 +681,22 @@ data EventSpec = EventSpec
   }
 
 odeSolveWithEvents
-  :: [EventSpec] -- ^ event specifications
-  -> Int -- ^ max number of events
-  -> (Double -> V.Vector Double -> V.Vector Double)     -- ^ RHS of the ODE system
-  -> Maybe (Double -> Vector Double -> Matrix Double)   -- ^ RHS of the ODE system
-  -> V.Vector Double                                    -- ^ initial conditions
-  -> ODEOpts
-  -> V.Vector Double -- ^ solution times
-  -> Either Int SundialsSolution -- ^ either an error code or a solution
-odeSolveWithEvents event_specs max_events rhs mb_jacobian initial opts sol_times =
+  :: ODEOpts
+  -> [EventSpec]
+    -- ^ Event specifications
+  -> Int
+    -- ^ Maximum number of events
+  -> (Double -> V.Vector Double -> V.Vector Double)
+    -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  -> Maybe (Double -> Vector Double -> Matrix Double)
+    -- ^ The Jacobian (optional)
+  -> V.Vector Double
+    -- ^ Initial conditions
+  -> V.Vector Double
+    -- ^ Desired solution times
+  -> Either Int SundialsSolution
+    -- ^ Either an error code or a solution
+odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times =
   let
     result :: SolverResult
     result =
