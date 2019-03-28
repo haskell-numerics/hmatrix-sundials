@@ -61,21 +61,3 @@ test-suite hmatrix-sundials-testsuite
                        sundials_cvode
   c-sources:           src/helpers.c
   default-language:    Haskell2010
-
-executable sundials
-  main-is:             sundials.hs
-  build-depends:       base >=4.10 && <4.11,
-                       hmatrix,
-                       hmatrix-sundials,
-                       hmatrix-gsl
-  hs-source-dirs:      examples
-  default-language:    Haskell2010
-
-executable butcherTableau
-  main-is:             ButcherTableau.hs
-  build-depends:       base >=4.10 && <4.11,
-                       hmatrix,
-                       hmatrix-sundials,
-                       pretty
-  hs-source-dirs:      examples
-  default-language:    Haskell2010
