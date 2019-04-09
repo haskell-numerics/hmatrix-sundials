@@ -1,9 +1,12 @@
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
 module Numeric.Sundials.ODEOpts where
 
 import           Data.Int (Int32)
 import qualified Data.Vector.Storable as VS
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix)
+import           Control.DeepSeq (NFData)
+import           GHC.Generics (Generic)
 
 
 type Jacobian = Double -> Vector Double -> Matrix Double
@@ -75,11 +78,11 @@ data EventInfo =
   , eventIndex    :: !Int               -- ^ which index was triggered
   , rootDirection :: !CrossingDirection -- ^ in which direction ((+)->(-) or (-)->(+)) the root is crossed
   }
-  deriving Show
+  deriving (Generic, Show, NFData)
 
 -- | The direction in which a function should cross the x axis
 data CrossingDirection = Upwards | Downwards | AnyDirection
-  deriving (Eq, Show)
+  deriving (Generic, Eq, Show, NFData)
 
 data EventSpec = EventSpec
   { eventCondition :: Double -> VS.Vector Double -> Double

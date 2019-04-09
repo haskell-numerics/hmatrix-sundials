@@ -25,7 +25,8 @@ library
                        template-haskell >=2.12 && <2.13,
                        containers >=0.5 && <0.6,
                        split >=0.2 && <3,
-                       hmatrix>=0.18
+                       hmatrix>=0.18,
+                       deepseq
   extra-libraries:     sundials_arkode,
                        sundials_cvode
   other-extensions:    QuasiQuotes
