@@ -20,7 +20,8 @@ type Jacobian = Double -> Vector Double -> Matrix Double
 -- \(a_{dydt}\) is a scaling factor for the derivative of the solution \(dy/dt\).
 --
 -- [CVode](https://computation.llnl.gov/projects/sundials/cvode)
--- allows the user to control the step size adjustment using
+-- and [ARKode](https://computation.llnl.gov/projects/sundials/arkode)
+-- allow the user to control the step size adjustment using
 -- \(\eta^{rel}|y_i| + \eta^{abs}_i\). For compatibility with
 -- [hmatrix-gsl](https://hackage.haskell.org/package/hmatrix-gsl),
 -- tolerances for \(y\) and \(\dot{y}\) can be specified but the latter have no
@@ -32,16 +33,11 @@ data StepControl = X     Double Double -- ^ absolute and relative tolerance for 
                  | ScXX' Double Double Double Double (Vector Double) -- ^ scale absolute tolerance of \(y_i\); in ARKode terms, \(a_{{dy}/{dt}}\) is ignored, \(\eta^{abs}_i = s_i \epsilon^{abs}\) and \(\eta^{rel} = a_{y}\epsilon^{rel}\)
   deriving (Eq, Ord, Show, Read)
 
--- | Stepping functions
-data ODEMethod = ADAMS
-               | BDF
-  deriving (Eq, Ord, Show, Read)
-
-data ODEOpts = ODEOpts {
+data ODEOpts method = ODEOpts {
     maxNumSteps :: Int32
   , minStep     :: Double
   , maxFail     :: Int32
-  , odeMethod   :: ODEMethod
+  , odeMethod   :: method
   , stepControl :: StepControl
   , initStep    :: Maybe Double
     -- ^ initial step size - by default, CVode
@@ -65,3 +61,28 @@ data SundialsDiagnostics = SundialsDiagnostics {
   , dlsGetNumRhsEvals            :: Int
   } deriving Show
 
+data SundialsSolution =
+  SundialsSolution
+  { actualTimeGrid :: VS.Vector Double    -- ^ actual time grid returned by the solver (with duplicated event times)
+  , solutionMatrix :: Matrix Double       -- ^ matrix of solutions: each column is an unknwown (add also the time vector?)
+  , eventInfo      :: [EventInfo]         -- ^ event infos, as many items as triggered events during the simulation
+  , diagnostics    :: SundialsDiagnostics -- ^ usual Sundials diagnostics
+  }
+
+data EventInfo =
+  EventInfo
+  { eventTime     :: !Double            -- ^ time at which event was triggered
+  , eventIndex    :: !Int               -- ^ which index was triggered
+  , rootDirection :: !CrossingDirection -- ^ in which direction ((+)->(-) or (-)->(+)) the root is crossed
+  }
+  deriving Show
+
+-- | The direction in which a function should cross the x axis
+data CrossingDirection = Upwards | Downwards | AnyDirection
+  deriving (Eq, Show)
+
+data EventSpec = EventSpec
+  { eventCondition :: Double -> VS.Vector Double -> Double
+  , eventDirection :: CrossingDirection
+  , eventUpdate :: Double -> VS.Vector Double -> VS.Vector Double
+  }

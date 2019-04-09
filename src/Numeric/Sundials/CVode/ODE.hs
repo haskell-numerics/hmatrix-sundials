@@ -72,10 +72,6 @@ module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , ODEMethod(..)
                                    , StepControl(..)
                                    , SolverResult(..)
-                                   , SundialsSolution(..)
-                                   , EventSpec(..)
-                                   , EventInfo(..)
-                                   , CrossingDirection(..)
                                    ) where
 
 import qualified Language.C.Inline as C
@@ -122,10 +118,10 @@ C.include "<sundials/sundials_math.h>"
 C.include "../../../helpers.h"
 C.include "Numeric/Sundials/Arkode_hsc.h"
 
-
--- | The direction in which a function should cross the x axis
-data CrossingDirection = Upwards | Downwards | AnyDirection
-  deriving (Eq, Show)
+-- | Stepping functions
+data ODEMethod = ADAMS
+               | BDF
+  deriving (Eq, Ord, Show, Read)
 
 -- Contrary to the documentation, it appears that CVodeGetRootInfo
 -- may use both 1 and -1 to indicate a root, depending on the
@@ -145,22 +141,6 @@ directionToInt d =
     Upwards -> 1
     Downwards -> -1
     AnyDirection -> 0
-
-data SundialsSolution =
-  SundialsSolution
-  { actualTimeGrid :: V.Vector Double                 -- ^ actual time grid returned by the solver (with duplicated event times)
-  , solutionMatrix :: Matrix Double                -- ^ matrix of solutions: each column is an unknwown (add also the time vector?)
-  , eventInfo      :: [EventInfo]         -- ^ event infos, as many items as triggered events during the simulation
-  , diagnostics    :: SundialsDiagnostics -- ^ usual Sundials diagnostics
-  }
-
-data EventInfo =
-  EventInfo
-  { eventTime     :: !Double            -- ^ time at which event was triggered
-  , eventIndex    :: !Int               -- ^ which index was triggered
-  , rootDirection :: !CrossingDirection -- ^ in which direction ((+)->(-) or (-)->(+)) the root is crossed
-  }
-  deriving Show
 
 getMethod :: ODEMethod -> Int
 getMethod (ADAMS) = cV_ADAMS
@@ -232,7 +212,7 @@ odeSolveVWith method control initStepSize f y0 tt =
                    }
 
 odeSolveVWith' ::
-  ODEOpts
+  ODEOpts ODEMethod
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector Double                     -- ^ Initial conditions
   -> V.Vector Double                     -- ^ Desired solution times
@@ -640,7 +620,7 @@ data SolverResult
     deriving Show
 
 odeSolveRootVWith' ::
-  ODEOpts
+  ODEOpts ODEMethod
   -> (Double -> V.Vector Double -> V.Vector Double)
       -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> Maybe (Double -> Vector Double -> Matrix Double)
@@ -674,14 +654,8 @@ odeSolveRootVWith' opts f mb_jacobian y0 event_specs nRootEvs tt =
     reset_state :: Int -> CDouble -> Vector CDouble -> Vector CDouble
     reset_state n_event = coerce $ eventUpdate (event_specs !! n_event)
 
-data EventSpec = EventSpec
-  { eventCondition :: Double -> V.Vector Double -> Double
-  , eventDirection :: CrossingDirection
-  , eventUpdate :: Double -> V.Vector Double -> V.Vector Double
-  }
-
 odeSolveWithEvents
-  :: ODEOpts
+  :: ODEOpts ODEMethod
   -> [EventSpec]
     -- ^ Event specifications
   -> Int

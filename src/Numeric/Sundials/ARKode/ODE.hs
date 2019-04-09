@@ -159,6 +159,7 @@ module Numeric.Sundials.ARKode.ODE ( odeSolve
                                    , odeSolveV
                                    , odeSolveVWith
                                    , odeSolveVWith'
+                                   , odeSolveWithEvents
                                    , ButcherTable(..)
                                    , butcherTable
                                    , ODEMethod(..)
@@ -186,9 +187,9 @@ import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
-                                                subVector, subMatrix, (><))
+                                                subVector, subMatrix, (><), toColumns)
 
-import           Numeric.Sundials.ODEOpts (ODEOpts(..), Jacobian, SundialsDiagnostics(..))
+import           Numeric.Sundials.ODEOpts
 import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.Arkode (arkSMax,
                                           sDIRK_2_1_2,
@@ -442,7 +443,7 @@ odeSolveVWith method control initStepSize f y0 tt =
                    }
 
 odeSolveVWith' ::
-  ODEOpts
+  ODEOpts ODEMethod
   -> ODEMethod
   -> StepControl
   -> Maybe Double -- ^ initial step size - by default, ARKode
@@ -478,6 +479,57 @@ odeSolveVWith' opts method control initStepSize f y0 tt =
         -- FIXME: efficiency
         vs = V.fromList $ map coerce $ concat $ toLists m
 
+-- | This function implements the same interface as
+-- 'Numeric.Sundials.CVode.ODE.odeSolveWithEvents', although it does not
+-- currently support events.
+odeSolveWithEvents
+  :: ODEOpts ODEMethod
+  -> [EventSpec]
+    -- ^ Event specifications
+  -> Int
+    -- ^ Maximum number of events
+  -> (Double -> V.Vector Double -> V.Vector Double)
+    -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  -> Maybe (Double -> Vector Double -> Matrix Double)
+    -- ^ The Jacobian (optional)
+  -> V.Vector Double
+    -- ^ Initial conditions
+  -> V.Vector Double
+    -- ^ Desired solution times
+  -> Either Int SundialsSolution
+    -- ^ Either an error code or a solution
+odeSolveWithEvents opts events _ rhs _mb_jac y0 times
+  | (not . null) events =
+      -- Call error rather than return a Left because this is a programming
+      -- error, not just a runtime issue.
+      error $ "ARKode called with a non-empty list of events (" ++ show (length events) ++
+      " in total).\
+      \ ARKode does not support events at this point and should not be passed any."
+  | otherwise =
+      let
+        result :: Either (Matrix Double, Int)
+                         (Matrix Double, SundialsDiagnostics)
+        result =
+          odeSolveVWith' opts
+            (odeMethod opts)
+            (stepControl opts)
+            (initStep opts)
+            rhs y0 times
+      in
+        case result of
+          Left (_, code) -> Left code
+          Right (mx, diagn) ->
+            Right $ SundialsSolution
+                { actualTimeGrid = extractTimeGrid mx
+                , solutionMatrix = mx
+                , eventInfo = []
+                , diagnostics = diagn
+                }
+  where
+    -- The time grid is the first column of the result matrix
+    extractTimeGrid :: Matrix Double -> Vector Double
+    extractTimeGrid = head . toColumns
+
 solveOdeC ::
   CInt ->
   CLong ->
@@ -511,8 +563,8 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       nTs = fromIntegral $ V.length ts
   quasiMatrixRes <- createVector ((fromIntegral dim) * (fromIntegral nTs))
   qMatMut <- V.thaw quasiMatrixRes
-  diagnostics :: V.Vector CLong <- createVector 10 -- FIXME
-  diagMut <- V.thaw diagnostics
+  diagn :: V.Vector CLong <- createVector 10 -- FIXME
+  diagMut <- V.thaw diagn
   -- We need the types that sundials expects. These are tied together
   -- in 'CLangToHaskellTypes'. FIXME: The Haskell type is currently empty!
   let funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
@@ -874,26 +926,3 @@ getButcherTable method = unsafePerformIO $ do
       return $ Right (ButcherTable' { am' = x, cv' = z, bv' = u, b2v' = v }, y)
     else do
       return $ Left res
-
--- | Adaptive step-size control
--- functions.
---
--- [GSL](https://www.gnu.org/software/gsl/doc/html/ode-initval.html#adaptive-step-size-control)
--- allows the user to control the step size adjustment using
--- \(D_i = \epsilon^{abs}s_i + \epsilon^{rel}(a_{y} |y_i| + a_{dy/dt} h |\dot{y}_i|)\) where
--- \(\epsilon^{abs}\) is the required absolute error, \(\epsilon^{rel}\)
--- is the required relative error, \(s_i\) is a vector of scaling
--- factors, \(a_{y}\) is a scaling factor for the solution \(y\) and
--- \(a_{dydt}\) is a scaling factor for the derivative of the solution \(dy/dt\).
---
--- [ARKode](https://computation.llnl.gov/projects/sundials/arkode)
--- allows the user to control the step size adjustment using
--- \(\eta^{rel}|y_i| + \eta^{abs}_i\). For compatibility with
--- [hmatrix-gsl](https://hackage.haskell.org/package/hmatrix-gsl),
--- tolerances for \(y\) and \(\dot{y}\) can be specified but the latter have no
--- effect.
-data StepControl = X     Double Double -- ^ absolute and relative tolerance for \(y\); in GSL terms, \(a_{y} = 1\) and \(a_{dy/dt} = 0\); in ARKode terms, the \(\eta^{abs}_i\) are identical
-                 | X'    Double Double -- ^ absolute and relative tolerance for \(\dot{y}\); in GSL terms, \(a_{y} = 0\) and \(a_{dy/dt} = 1\); in ARKode terms, the latter is treated as the relative tolerance for \(y\) so this is the same as specifying 'X' which may be entirely incorrect for the given problem
-                 | XX'   Double Double Double Double -- ^ include both via relative tolerance
-                                                     -- scaling factors \(a_y\), \(a_{{dy}/{dt}}\); in ARKode terms, the latter is ignored and \(\eta^{rel} = a_{y}\epsilon^{rel}\)
-                 | ScXX' Double Double Double Double (Vector Double) -- ^ scale absolute tolerance of \(y_i\); in ARKode terms, \(a_{{dy}/{dt}}\) is ignored, \(\eta^{abs}_i = s_i \epsilon^{abs}\) and \(\eta^{rel} = a_{y}\epsilon^{rel}\)
