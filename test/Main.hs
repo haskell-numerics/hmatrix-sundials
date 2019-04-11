@@ -9,6 +9,7 @@ import           Numeric.Sundials.ODEOpts
 import           Plots as P
 import qualified Diagrams.Prelude as D
 import           Diagrams.Backend.Rasterific
+import qualified Data.Vector.Storable as V
 
 import           Control.Lens
 import           Control.Monad
@@ -460,15 +461,72 @@ main = do
             CV.SolverSuccess _ m2 _ = brusselatorWithJacobian (vector ts) False
         norm_2 (m1-m2) `shouldSatisfy` (< 1e-3)
 
-  hspec $ describe "Compare results" $ do
-    it "Robertson should fail" $ cond7
-    it "Robertson time only" $ cond6
-    it "Robertson from SUNDIALS manual" $ cond5
-    it "Robertson with explicit Jacobian up to t=10" robertsonJac
-    it "Brusselator with explicit Jacobian" brusselatorJac
-    it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
-    it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
-    it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
-    it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
-    it "Bounded sine events" $ boundedSineSpec
-    it "Exponential events" $ exponentialSpec
+  hspec $ do
+    describe "Compare results" $ do
+      it "Robertson should fail" $ cond7
+      it "Robertson time only" $ cond6
+      it "Robertson from SUNDIALS manual" $ cond5
+      it "Robertson with explicit Jacobian up to t=10" robertsonJac
+      it "Brusselator with explicit Jacobian" brusselatorJac
+      it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
+      it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
+      it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
+      it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
+    describe "Events" $ do
+      it "Bounded sine events" $ boundedSineSpec
+      it "Exponential events" $ exponentialSpec
+      describe "Discontinuous zero crossings" $ do
+        let
+          eq :: Double -> V.Vector Double -> V.Vector Double
+          eq _ _ = V.singleton 1
+
+          cond
+            :: (Double -> Double -> Bool)
+            -> (Double -> Vector Double -> Double)
+          cond op _t y =
+            if V.head y `op` 0
+              then 1
+              else -1
+
+          solve op = CV.odeSolveWithEvents
+            opts
+            [EventSpec
+              { eventCondition = cond op
+              , eventDirection = AnyDirection
+              , eventUpdate = \_t y -> V.map (+1) y
+              }
+            ]
+            5 -- max # of events
+            eq
+            Nothing
+            (V.singleton (-1))
+            (V.fromList [0, 2])
+
+          ops :: [(String, Double -> Double -> Bool)]
+          ops =
+            [ (">=", (>=))
+            , (">",  (>))
+            , ("<=", (<=))
+            , ("<",  (<))
+            ]
+        forM_ ops $ \(op_name, op) -> it ("Event condition expressed as " ++ op_name) $ do
+          let
+            Right soln = solve op
+            evs = eventInfo soln
+            [ev] = evs
+          length evs `shouldBe` 1
+          eventTime ev `shouldSatisfy` (\t -> abs (t-1) < 1e-3)
+          -- row 0 is time 0, rows 1 and 2 are right before and right after
+          -- the event (time 1), row 3 is the end point (time 2)
+          solutionMatrix soln ! 1 ! 0 `shouldSatisfy` (\y -> abs y < 1e-3)
+          solutionMatrix soln ! 2 ! 0 `shouldSatisfy` (\y -> abs (y-1) < 1e-3)
+          solutionMatrix soln ! 3 ! 0 `shouldSatisfy` (\y -> abs (y-2) < 1e-3)
+
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6])
+                   , initStep = Nothing
+                   }
