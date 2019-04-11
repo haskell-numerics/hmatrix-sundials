@@ -94,7 +94,7 @@ import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
-                                                subVector, subMatrix, toColumns)
+                                                subVector, subMatrix, toColumns, fromColumns)
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
                                           vectorToC, cV_SUCCESS,
@@ -682,7 +682,7 @@ odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times
       SolverSuccess events mx diagn ->
         Right $ SundialsSolution
             { actualTimeGrid = extractTimeGrid mx
-            , solutionMatrix = mx
+            , solutionMatrix = dropTimeGrid mx
             , eventInfo = events
             , diagnostics = diagn
             }
@@ -690,3 +690,5 @@ odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times
     -- The time grid is the first column of the result matrix
     extractTimeGrid :: Matrix Double -> Vector Double
     extractTimeGrid = head . toColumns
+    dropTimeGrid :: Matrix Double -> Matrix Double
+    dropTimeGrid = fromColumns . tail . toColumns

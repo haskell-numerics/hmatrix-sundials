@@ -67,7 +67,7 @@ data SundialsDiagnostics = SundialsDiagnostics {
 data SundialsSolution =
   SundialsSolution
   { actualTimeGrid :: VS.Vector Double    -- ^ actual time grid returned by the solver (with duplicated event times)
-  , solutionMatrix :: Matrix Double       -- ^ matrix of solutions: each column is an unknwown (add also the time vector?)
+  , solutionMatrix :: Matrix Double       -- ^ matrix of solutions: each column is an unknwown
   , eventInfo      :: [EventInfo]         -- ^ event infos, as many items as triggered events during the simulation
   , diagnostics    :: SundialsDiagnostics -- ^ usual Sundials diagnostics
   }
