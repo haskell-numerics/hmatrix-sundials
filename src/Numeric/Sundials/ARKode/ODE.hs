@@ -520,7 +520,7 @@ odeSolveWithEvents opts events _ rhs _mb_jac y0 times
           Left (_, code) -> Left code
           Right (mx, diagn) ->
             Right $ SundialsSolution
-                { actualTimeGrid = extractTimeGrid mx
+                { actualTimeGrid = times
                 , solutionMatrix =
                     -- Note: at this time, ARKode's output matrix does not
                     -- include the time column, so we're not dropping it
@@ -530,10 +530,6 @@ odeSolveWithEvents opts events _ rhs _mb_jac y0 times
                 , eventInfo = []
                 , diagnostics = diagn
                 }
-  where
-    -- The time grid is the first column of the result matrix
-    extractTimeGrid :: Matrix Double -> Vector Double
-    extractTimeGrid = head . toColumns
 
 solveOdeC ::
   CInt ->
