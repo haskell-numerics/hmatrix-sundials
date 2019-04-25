@@ -475,7 +475,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                            if (flag == CV_ROOT_RETURN) {
                              if (event_ind >= $(int max_events)) {
-                               /* We don't have any more space for events. Return an error. */
+                               /* We reached the maximum number of events.
+                                  Either the maximum number of events is set to 0,
+                                  or there's a bug in our code below. In any case return an error.
+                               */
                                return 1;
                              }
 
@@ -509,6 +512,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                output_ind++;
                                ($vec-ptr:(int *n_rows_mut))[0] = output_ind;
 
+                               if (event_ind >= $(int max_events)) {
+                                 /* We collected the requested number of events. Stop the solver. */
+                                 break;
+                               }
                                flag = CVodeReInit(cvode_mem, t, y);
                                if (check_flag(&flag, "CVodeReInit", 1)) return(1);
                              } else {

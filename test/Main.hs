@@ -411,9 +411,8 @@ main = do
 
   let cond7 =
         case solve2 of
-          CV.SolverSuccess {} ->
-            error "Solver returned Success"
-          CV.SolverError _ _ ->
+          CV.SolverSuccess events _ _ -> length events `shouldBe` 100
+          CV.SolverError _ _ -> error "solver failed"
             True
 
   case brussRoot of
@@ -463,7 +462,7 @@ main = do
 
   hspec $ do
     describe "Compare results" $ do
-      it "Robertson should fail" $ cond7
+      it "Robertson should stop early" cond7
       it "Robertson time only" $ cond6
       it "Robertson from SUNDIALS manual" $ cond5
       it "Robertson with explicit Jacobian up to t=10" robertsonJac
