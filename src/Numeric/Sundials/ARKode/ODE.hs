@@ -187,7 +187,7 @@ import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
-                                                subVector, subMatrix, (><), toColumns, fromColumns)
+                                                subVector, subMatrix, (><))
 
 import           Numeric.Sundials.ODEOpts
 import qualified Numeric.Sundials.Arkode as T
@@ -462,7 +462,9 @@ odeSolveVWith' opts method control initStepSize f y0 tt =
                  (fromIntegral $ getMethod method) (coerce initStepSize) jacH (scise control)
                  (coerce f) (coerce y0) (coerce tt) of
     Left  (v, c) -> Left  (reshape l (coerce v), fromIntegral c)
-    Right (v, d) -> Right (reshape l (coerce v), d)
+    Right (v, d)
+      | V.null y0 -> Right ((V.length tt >< 0) [], emptyDiagnostics)
+      | otherwise -> Right (reshape l (coerce v), d)
   where
     l = size y0
     scise (X aTol rTol)                          = coerce (V.replicate l aTol, rTol)
@@ -545,8 +547,11 @@ solveOdeC ::
   -> Either (V.Vector CDouble, CInt) (V.Vector CDouble, SundialsDiagnostics) -- ^ Partial solution and error code or
                                                                              -- solution and diagnostics
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
-          jacH (aTols, rTol) fun f0 ts = unsafePerformIO $ do
-
+          jacH (aTols, rTol) fun f0 ts
+  | V.null f0 = -- 0-dimensional (empty) system
+    Right (V.empty, emptyDiagnostics)
+  | otherwise =
+  unsafePerformIO $ do
   let isInitStepSize :: CInt
       isInitStepSize = fromIntegral $ fromEnum $ isJust initStepSize
       ss :: CDouble

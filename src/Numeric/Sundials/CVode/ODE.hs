@@ -94,7 +94,7 @@ import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
-                                                subVector, subMatrix, toColumns, fromColumns)
+                                                subVector, subMatrix, toColumns, fromColumns, asColumn)
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
                                           vectorToC, cV_SUCCESS,
@@ -274,7 +274,10 @@ solveOdeC ::
   -> V.Vector CDouble -- ^ Desired solution times
   -> SolverResult
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
-          jacH (aTols, rTol) fun f0 nr event_fn directions max_events apply_event ts =
+          jacH (aTols, rTol) fun f0 nr event_fn directions max_events apply_event ts
+  | V.null f0 = -- 0-dimensional (empty) system
+    SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
+  | otherwise =
   unsafePerformIO $ do
 
   let isInitStepSize :: CInt

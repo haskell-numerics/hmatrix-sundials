@@ -3,7 +3,7 @@
 
 import qualified Numeric.Sundials.ARKode.ODE as ARK
 import qualified Numeric.Sundials.CVode.ODE  as CV
-import           Numeric.LinearAlgebra
+import           Numeric.LinearAlgebra as L
 import           Numeric.Sundials.ODEOpts
 
 import           Plots as P
@@ -471,6 +471,11 @@ main = do
       it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
       it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
       it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
+    describe "Handling empty systems" $
+      forM_ [("CVOde",CV.odeSolve),("ARKOde",ARK.odeSolve)] $ \(name, solveFn) ->
+        it name $
+          solveFn (\_ _ -> []) [] (V.enumFromTo 0 10) `shouldSatisfy` \sol ->
+            L.size sol == (11,0)
     describe "Events" $ do
       it "Bounded sine events" $ boundedSineSpec
       it "Exponential events" $ exponentialSpec

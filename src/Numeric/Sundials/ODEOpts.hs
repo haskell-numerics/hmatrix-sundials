@@ -64,6 +64,9 @@ data SundialsDiagnostics = SundialsDiagnostics {
   , dlsGetNumRhsEvals            :: Int
   } deriving Show
 
+emptyDiagnostics :: SundialsDiagnostics
+emptyDiagnostics = SundialsDiagnostics 0 0 0 0 0 0 0 0 0 0
+
 data SundialsSolution =
   SundialsSolution
   { actualTimeGrid :: VS.Vector Double    -- ^ actual time grid returned by the solver (with duplicated event times)
