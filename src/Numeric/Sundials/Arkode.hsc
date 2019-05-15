@@ -37,7 +37,6 @@ module Numeric.Sundials.Arkode ( getDataFromContents
                                , aRK436L2SA_DIRK_6_3_4
                                , kVAERNO_7_4_5
                                , aRK548L2SA_DIRK_8_4_5
-                               , arkSMax
                                ) where
 
 import           Foreign
@@ -61,6 +60,8 @@ import qualified Data.Vector.Storable as V
 #include <nvector/nvector_serial.h>
 #include <sunmatrix/sunmatrix_dense.h>
 #include <arkode/arkode.h>
+#include <arkode/arkode_arkstep.h>
+#include <arkode/arkode_butcher_dirk.h>
 #include <cvode/cvode.h>
 
 
@@ -190,9 +191,6 @@ cV_ADAMS :: Int
 cV_ADAMS = #const CV_ADAMS
 cV_BDF :: Int
 cV_BDF = #const CV_BDF
-
-arkSMax :: Int
-arkSMax = #const ARK_S_MAX
 
 mIN_DIRK_NUM, mAX_DIRK_NUM :: Int
 mIN_DIRK_NUM = #const MIN_DIRK_NUM
