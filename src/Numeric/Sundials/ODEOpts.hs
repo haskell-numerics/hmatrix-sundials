@@ -7,7 +7,19 @@ import qualified Data.Vector.Storable as VS
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix)
 import           Control.DeepSeq (NFData)
 import           GHC.Generics (Generic)
+import           Foreign.C.Types
+import           Foreign.Ptr
+import           Numeric.Sundials.Arkode (SunVector(..))
 
+-- | The type of the C ODE RHS function.
+type OdeRhsCType = CDouble -> Ptr SunVector -> Ptr SunVector -> Ptr () -> IO CInt
+
+-- | The right-hand side of the ODE system.
+--
+-- Can be either a Haskell function or a pointer to a C function.
+data OdeRhs
+  = OdeRhsHaskell (CDouble -> VS.Vector CDouble -> VS.Vector CDouble)
+  | OdeRhsC (FunPtr OdeRhsCType)
 
 type Jacobian = Double -> Vector Double -> Matrix Double
 

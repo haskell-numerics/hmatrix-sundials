@@ -1,4 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import qualified Numeric.Sundials.ARKode.ODE as ARK
@@ -13,6 +14,8 @@ import qualified Data.Vector.Storable as V
 
 import           Control.Lens
 import           Control.Monad
+import           Data.Coerce
+import           Foreign.C.Types
 
 import           Test.Hspec
 
@@ -71,7 +74,7 @@ brussJac _t x = tr $
 
 brusselatorWithJacobian :: Vector Double -> Bool -> CV.SolverResult
 brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
-                      (\t v -> vector $ brusselator t (toList v))
+                      (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       (if usejac then Just brussJac else Nothing)
                       (vector [1.2, 3.1, 3.0])
                       [] 0
@@ -87,7 +90,7 @@ brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
 
 brussRoot :: CV.SolverResult
 brussRoot = CV.odeSolveRootVWith' opts
-                      (\t v -> vector $ brusselator t (toList v))
+                      (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       Nothing
                       (vector [1.2, 3.1, 3.0])
                       events 100
@@ -117,7 +120,7 @@ brussRootFn _ v = case xs of
 
 exponential :: CV.SolverResult
 exponential = CV.odeSolveRootVWith' opts
-                      (\t y -> vector [y ! 0])
+                      (OdeRhsHaskell . coerce $ \(t :: Double) y -> vector [y ! 0])
                       Nothing
                       (vector [1])
                       events 100
@@ -142,7 +145,7 @@ exponential = CV.odeSolveRootVWith' opts
 boundedSine :: CV.SolverResult
 boundedSine = CV.odeSolveRootVWith'
   opts
-  (\_t y -> vector [y ! 1, - y ! 0]) -- ODE RHS
+  (OdeRhsHaskell . coerce $ \(_t :: Double) y -> vector [y ! 1, - y ! 0]) -- ODE RHS
   Nothing
   (vector [0, 1]) -- initial conditions
   events
@@ -201,8 +204,8 @@ predatorPrey _t v = [ x * a - b * x * y
     f = 1.0
     g = 1.0
 
-roberts :: Double -> Vector Double -> Vector Double
-roberts t v = vector $ robertsAux t (toList v)
+roberts :: OdeRhs
+roberts = OdeRhsHaskell . coerce $ \(t :: Double) v -> vector $ robertsAux t (toList v)
   where
     robertsAux _ [y1, y2, y3] =
       [ -0.04 * y1 + 1.0e4 * y2 * y3
@@ -481,8 +484,8 @@ main = do
       it "Exponential events" $ exponentialSpec
       describe "Discontinuous zero crossings" $ do
         let
-          eq :: Double -> V.Vector Double -> V.Vector Double
-          eq _ _ = V.singleton 1
+          eq :: OdeRhs
+          eq = OdeRhsHaskell $ \_ _ -> V.singleton 1
 
           cond
             :: (Double -> Double -> Bool)

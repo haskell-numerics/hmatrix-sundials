@@ -82,7 +82,7 @@ import           Data.Maybe (isJust, fromJust)
 import           Data.List (genericLength)
 
 import           Foreign.C.Types (CDouble, CInt, CLong)
-import           Foreign.Ptr (Ptr)
+import           Foreign.Ptr
 import           Foreign.Storable (peek, poke)
 
 import qualified Data.Vector.Storable as V
@@ -221,7 +221,7 @@ odeSolveVWith' opts f y0 tt =
   case solveOdeC (fromIntegral $ maxFail opts)
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
-                  (coerce f) (coerce y0)
+                  (OdeRhsHaskell $ coerce f) (coerce y0)
                   0 (\_ x -> x) [] 0 (\_ _ y -> y) (coerce tt) of
     -- Remove the time column for backwards compatibility
     SolverError m c         -> Left
@@ -250,6 +250,9 @@ matrixToSunMatrix m = T.SunMatrix { T.rows = nr, T.cols = nc, T.vals = vs }
     -- FIXME: efficiency
     vs = V.fromList $ map coerce $ concat $ toLists m
 
+foreign import ccall "wrapper"
+  mkOdeRhsC :: OdeRhsCType -> IO (FunPtr OdeRhsCType)
+
 solveOdeC ::
   CInt ->
   CLong ->
@@ -258,7 +261,7 @@ solveOdeC ::
   Maybe CDouble ->
   (Maybe (CDouble -> V.Vector CDouble -> T.SunMatrix)) ->
   (V.Vector CDouble, CDouble) ->
-  (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  OdeRhs -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector CDouble -- ^ Initial conditions
   -> CInt -- ^ Number of event equations
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
@@ -274,7 +277,7 @@ solveOdeC ::
   -> V.Vector CDouble -- ^ Desired solution times
   -> SolverResult
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
-          jacH (aTols, rTol) fun f0 nr event_fn directions max_events apply_event ts
+          jacH (aTols, rTol) rhs f0 nr event_fn directions max_events apply_event ts
   | V.null f0 = -- 0-dimensional (empty) system
     SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
   | otherwise =
@@ -297,15 +300,19 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       nTs = fromIntegral $ V.length ts
   output_mat_mut :: V.MVector _ CDouble <- V.thaw =<< createVector ((1 + fromIntegral dim) * (fromIntegral (2 * max_events) + fromIntegral nTs))
   diagMut :: V.MVector _ CLong <- V.thaw =<< createVector 10 -- FIXME
-  -- We need the types that sundials expects.
-  -- FIXME: The Haskell type is currently empty!
-  let funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIO t y f _ptr = do
-        sv <- peek y
-        poke f $ SunVector { sunVecN = sunVecN sv
-                           , sunVecVals = fun t (sunVecVals sv)
-                           }
-        return 0
+  rhs_funptr :: FunPtr OdeRhsCType <-
+    case rhs of
+      OdeRhsC ptr -> return ptr
+      OdeRhsHaskell fun -> do
+        let
+          funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
+          funIO t y f _ptr = do
+            sv <- peek y
+            poke f $ SunVector { sunVecN = sunVecN sv
+                               , sunVecVals = fun t (sunVecVals sv)
+                               }
+            return 0
+        mkOdeRhsC funIO
 
   let nrPre = fromIntegral nr
   gResults :: V.Vector CInt <- createVector nrPre
@@ -407,7 +414,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Call CVodeInit to initialize the integrator memory and specify the
                           * user's right hand side function in y'=f(t,y), the inital time T0, and
                           * the initial dependent variable vector y. */
-                         flag = CVodeInit(cvode_mem, $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
+                         flag = CVodeInit(cvode_mem, $(int (* rhs_funptr) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
                          if (check_flag(&flag, "CVodeInit", 1)) return(1);
 
                          tv = N_VNew_Serial(NEQ); /* Create serial vector for absolute tolerances */
@@ -584,6 +591,13 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          return CV_SUCCESS;
                        } |]
+
+  -- Free the allocated FunPtr. Ideally this should be done within
+  -- a bracket...
+  case rhs of
+    OdeRhsHaskell {} -> freeHaskellFunPtr rhs_funptr
+    OdeRhsC {} -> return () -- we didn't allocate this
+
   preD <- V.freeze diagMut
   let d = SundialsDiagnostics (fromIntegral $ preD V.!0)
                               (fromIntegral $ preD V.!1)
@@ -631,7 +645,7 @@ data SolverResult
 
 odeSolveRootVWith' ::
   ODEOpts ODEMethod
-  -> (Double -> V.Vector Double -> V.Vector Double)
+  -> OdeRhs
       -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> Maybe (Double -> Vector Double -> Matrix Double)
       -- ^ The Jacobian (optional)
@@ -640,11 +654,11 @@ odeSolveRootVWith' ::
   -> Int                                  -- ^ Maximum number of events
   -> V.Vector Double                      -- ^ Desired solution times
   -> SolverResult
-odeSolveRootVWith' opts f mb_jacobian y0 event_specs nRootEvs tt =
+odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
   solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
-                 (coerce f) (coerce y0)
+                 rhs (coerce y0)
                  (genericLength event_specs) event_equations event_directions
                  (fromIntegral nRootEvs) reset_state
                  (coerce tt)
@@ -670,7 +684,7 @@ odeSolveWithEvents
     -- ^ Event specifications
   -> Int
     -- ^ Maximum number of events
-  -> (Double -> V.Vector Double -> V.Vector Double)
+  -> OdeRhs
     -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> Maybe (Double -> Vector Double -> Matrix Double)
     -- ^ The Jacobian (optional)
