@@ -172,7 +172,7 @@ import qualified Language.C.Inline.Unsafe as CU
 import           Data.Monoid ((<>))
 import           Data.Maybe (isJust)
 
-import           Foreign.C.Types (CDouble, CInt, CLong)
+import           Foreign.C.Types (CDouble, CInt)
 import           Foreign.Ptr (Ptr)
 import           Foreign.Storable (poke, peek)
 
@@ -535,7 +535,7 @@ odeSolveWithEvents opts events _ rhs _mb_jac y0 times
 
 solveOdeC ::
   CInt ->
-  CLong ->
+  T.SunIndexType ->
   CDouble ->
   CInt ->
   Maybe CDouble ->
@@ -563,13 +563,13 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
              Just x  -> x
 
   let dim = V.length f0
-      nEq :: CLong
+      nEq :: T.SunIndexType
       nEq = fromIntegral dim
       nTs :: CInt
       nTs = fromIntegral $ V.length ts
   quasiMatrixRes <- createVector ((fromIntegral dim) * (fromIntegral nTs))
   qMatMut <- V.thaw quasiMatrixRes
-  diagn :: V.Vector CLong <- createVector 10 -- FIXME
+  diagn :: V.Vector T.SunIndexType <- createVector 10 -- FIXME
   diagMut <- V.thaw diagn
   -- We need the types that sundials expects. These are tied together
   -- in 'CLangToHaskellTypes'. FIXME: The Haskell type is currently empty!
@@ -605,7 +605,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          SUNLinearSolver LS = NULL; /* empty linear solver object                   */
                          void *arkode_mem = NULL;   /* empty ARKode memory structure                */
                          realtype t;
-                         long int nst, nst_a, nfe, nfi, nsetups, nje, nfeLS, nni, ncfn, netf;
+                         sunindextype nst, nst_a, nfe, nfi, nsetups, nje, nfeLS, nni, ncfn, netf;
 
                          /* general problem parameters */
 
@@ -648,7 +648,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          flag = ARKodeSetMinStep(arkode_mem, $(double minStep_));
                          if (check_flag(&flag, "ARKodeSetMinStep", 1)) return 1;
-                         flag = ARKodeSetMaxNumSteps(arkode_mem, $(long int maxNumSteps_));
+                         flag = ARKodeSetMaxNumSteps(arkode_mem, $(sunindextype maxNumSteps_));
                          if (check_flag(&flag, "ARKodeSetMaxNumSteps", 1)) return 1;
                          flag = ARKodeSetMaxErrTestFails(arkode_mem, $(int maxErrTestFails));
                          if (check_flag(&flag, "ARKodeSetMaxErrTestFails", 1)) return 1;
@@ -712,40 +712,40 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          flag = ARKodeGetNumSteps(arkode_mem, &nst);
                          check_flag(&flag, "ARKodeGetNumSteps", 1);
-                         ($vec-ptr:(long int *diagMut))[0] = nst;
+                         ($vec-ptr:(sunindextype *diagMut))[0] = nst;
 
                          flag = ARKodeGetNumStepAttempts(arkode_mem, &nst_a);
                          check_flag(&flag, "ARKodeGetNumStepAttempts", 1);
-                         ($vec-ptr:(long int *diagMut))[1] = nst_a;
+                         ($vec-ptr:(sunindextype *diagMut))[1] = nst_a;
 
                          flag = ARKodeGetNumRhsEvals(arkode_mem, &nfe, &nfi);
                          check_flag(&flag, "ARKodeGetNumRhsEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[2] = nfe;
-                         ($vec-ptr:(long int *diagMut))[3] = nfi;
+                         ($vec-ptr:(sunindextype *diagMut))[2] = nfe;
+                         ($vec-ptr:(sunindextype *diagMut))[3] = nfi;
 
                          flag = ARKodeGetNumLinSolvSetups(arkode_mem, &nsetups);
                          check_flag(&flag, "ARKodeGetNumLinSolvSetups", 1);
-                         ($vec-ptr:(long int *diagMut))[4] = nsetups;
+                         ($vec-ptr:(sunindextype *diagMut))[4] = nsetups;
 
                          flag = ARKodeGetNumErrTestFails(arkode_mem, &netf);
                          check_flag(&flag, "ARKodeGetNumErrTestFails", 1);
-                         ($vec-ptr:(long int *diagMut))[5] = netf;
+                         ($vec-ptr:(sunindextype *diagMut))[5] = netf;
 
                          flag = ARKodeGetNumNonlinSolvIters(arkode_mem, &nni);
                          check_flag(&flag, "ARKodeGetNumNonlinSolvIters", 1);
-                         ($vec-ptr:(long int *diagMut))[6] = nni;
+                         ($vec-ptr:(sunindextype *diagMut))[6] = nni;
 
                          flag = ARKodeGetNumNonlinSolvConvFails(arkode_mem, &ncfn);
                          check_flag(&flag, "ARKodeGetNumNonlinSolvConvFails", 1);
-                         ($vec-ptr:(long int *diagMut))[7] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[7] = ncfn;
 
                          flag = ARKDlsGetNumJacEvals(arkode_mem, &nje);
                          check_flag(&flag, "ARKDlsGetNumJacEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[8] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[8] = ncfn;
 
                          flag = ARKDlsGetNumRhsEvals(arkode_mem, &nfeLS);
                          check_flag(&flag, "ARKDlsGetNumRhsEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[9] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[9] = ncfn;
 
                          /* Clean up and return */
                          N_VDestroy(y);            /* Free y vector          */
@@ -821,7 +821,7 @@ getButcherTable method = unsafePerformIO $ do
       f0        = V.fromList [ 1.0 ]
       ts        = V.fromList [ 0.0 ]
       dim = V.length f0
-      nEq :: CLong
+      nEq :: T.SunIndexType
       nEq = fromIntegral dim
       mN :: CInt
       mN = fromIntegral $ getMethod method

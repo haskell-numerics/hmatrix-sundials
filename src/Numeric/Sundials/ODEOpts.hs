@@ -9,7 +9,9 @@ import           Control.DeepSeq (NFData)
 import           GHC.Generics (Generic)
 import           Foreign.C.Types
 import           Foreign.Ptr
-import           Numeric.Sundials.Arkode (SunVector(..))
+import           Numeric.Sundials.Arkode (SunVector(..),
+                                          sunContentLengthOffset,
+                                          sunContentDataOffset)
 
 -- | The type of the C ODE RHS function.
 type OdeRhsCType = CDouble -> Ptr SunVector -> Ptr SunVector -> Ptr () -> IO CInt

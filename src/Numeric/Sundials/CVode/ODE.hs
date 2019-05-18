@@ -81,7 +81,7 @@ import           Data.Monoid ((<>))
 import           Data.Maybe (isJust, fromJust)
 import           Data.List (genericLength)
 
-import           Foreign.C.Types (CDouble, CInt, CLong)
+import           Foreign.C.Types (CDouble, CInt)
 import           Foreign.Ptr
 import           Foreign.Storable (peek, poke)
 
@@ -98,7 +98,7 @@ import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
                                           vectorToC, cV_SUCCESS,
-                                          SunVector(..))
+                                          SunVector(..), SunIndexType)
 import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.ODEOpts
 
@@ -255,7 +255,7 @@ foreign import ccall "wrapper"
 
 solveOdeC ::
   CInt ->
-  CLong ->
+  SunIndexType ->
   CDouble ->
   CInt ->
   Maybe CDouble ->
@@ -294,12 +294,12 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
              Just x  -> x
 
   let dim = V.length f0
-      nEq :: CLong
+      nEq :: SunIndexType
       nEq = fromIntegral dim
       nTs :: CInt
       nTs = fromIntegral $ V.length ts
   output_mat_mut :: V.MVector _ CDouble <- V.thaw =<< createVector ((1 + fromIntegral dim) * (fromIntegral (2 * max_events) + fromIntegral nTs))
-  diagMut :: V.MVector _ CLong <- V.thaw =<< createVector 10 -- FIXME
+  diagMut :: V.MVector _ SunIndexType <- V.thaw =<< createVector 10 -- FIXME
   rhs_funptr :: FunPtr OdeRhsCType <-
     case rhs of
       OdeRhsC ptr -> return ptr
@@ -375,7 +375,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          SUNLinearSolver LS = NULL; /* empty linear solver object                   */
                          void *cvode_mem = NULL;    /* empty CVODE memory structure                 */
                          realtype t;
-                         long int nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
+                         sunindextype nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
 
                          realtype tout;
 
@@ -426,7 +426,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          flag = CVodeSetMinStep(cvode_mem, $(double minStep_));
                          if (check_flag(&flag, "CVodeSetMinStep", 1)) return 1;
-                         flag = CVodeSetMaxNumSteps(cvode_mem, $(long int maxNumSteps_));
+                         flag = CVodeSetMaxNumSteps(cvode_mem, $(sunindextype maxNumSteps_));
                          if (check_flag(&flag, "CVodeSetMaxNumSteps", 1)) return 1;
                          flag = CVodeSetMaxErrTestFails(cvode_mem, $(int maxErrTestFails));
                          if (check_flag(&flag, "CVodeSetMaxErrTestFails", 1)) return 1;
@@ -546,40 +546,40 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Get some final statistics on how the solve progressed */
                          flag = CVodeGetNumSteps(cvode_mem, &nst);
                          check_flag(&flag, "CVodeGetNumSteps", 1);
-                         ($vec-ptr:(long int *diagMut))[0] = nst;
+                         ($vec-ptr:(sunindextype *diagMut))[0] = nst;
 
                          /* FIXME */
-                         ($vec-ptr:(long int *diagMut))[1] = 0;
+                         ($vec-ptr:(sunindextype *diagMut))[1] = 0;
 
                          flag = CVodeGetNumRhsEvals(cvode_mem, &nfe);
                          check_flag(&flag, "CVodeGetNumRhsEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[2] = nfe;
+                         ($vec-ptr:(sunindextype *diagMut))[2] = nfe;
                          /* FIXME */
-                         ($vec-ptr:(long int *diagMut))[3] = 0;
+                         ($vec-ptr:(sunindextype *diagMut))[3] = 0;
 
                          flag = CVodeGetNumLinSolvSetups(cvode_mem, &nsetups);
                          check_flag(&flag, "CVodeGetNumLinSolvSetups", 1);
-                         ($vec-ptr:(long int *diagMut))[4] = nsetups;
+                         ($vec-ptr:(sunindextype *diagMut))[4] = nsetups;
 
                          flag = CVodeGetNumErrTestFails(cvode_mem, &netf);
                          check_flag(&flag, "CVodeGetNumErrTestFails", 1);
-                         ($vec-ptr:(long int *diagMut))[5] = netf;
+                         ($vec-ptr:(sunindextype *diagMut))[5] = netf;
 
                          flag = CVodeGetNumNonlinSolvIters(cvode_mem, &nni);
                          check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1);
-                         ($vec-ptr:(long int *diagMut))[6] = nni;
+                         ($vec-ptr:(sunindextype *diagMut))[6] = nni;
 
                          flag = CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
                          check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
-                         ($vec-ptr:(long int *diagMut))[7] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[7] = ncfn;
 
                          flag = CVDlsGetNumJacEvals(cvode_mem, &nje);
                          check_flag(&flag, "CVDlsGetNumJacEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[8] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[8] = ncfn;
 
                          flag = CVDlsGetNumRhsEvals(cvode_mem, &nfeLS);
                          check_flag(&flag, "CVDlsGetNumRhsEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[9] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[9] = ncfn;
 
                          /* Clean up and return */
 
