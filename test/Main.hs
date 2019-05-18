@@ -5,7 +5,7 @@
 import qualified Numeric.Sundials.ARKode.ODE as ARK
 import qualified Numeric.Sundials.CVode.ODE  as CV
 import           Numeric.LinearAlgebra as L
-import           Numeric.Sundials.ODEOpts
+import           Numeric.Sundials.Types
 
 import           Plots as P
 import qualified Diagrams.Prelude as D

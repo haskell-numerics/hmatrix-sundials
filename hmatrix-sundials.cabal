@@ -31,7 +31,7 @@ library
                        sundials_cvode
   other-extensions:    QuasiQuotes
   hs-source-dirs:      src
-  exposed-modules:     Numeric.Sundials.ODEOpts,
+  exposed-modules:     Numeric.Sundials.Types,
                        Numeric.Sundials.ARKode.ODE,
                        Numeric.Sundials.CVode.ODE
   other-modules:       Numeric.Sundials.Arkode

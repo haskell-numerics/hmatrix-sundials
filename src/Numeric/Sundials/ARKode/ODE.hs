@@ -189,7 +189,7 @@ import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
                                                 subVector, subMatrix, (><))
 
-import           Numeric.Sundials.ODEOpts
+import           Numeric.Sundials.Types
 import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.Arkode (arkSMax,
                                           sDIRK_2_1_2,

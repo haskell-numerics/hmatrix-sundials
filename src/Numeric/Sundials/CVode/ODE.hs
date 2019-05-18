@@ -100,7 +100,7 @@ import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
                                           vectorToC, cV_SUCCESS,
                                           SunVector(..), SunIndexType)
 import qualified Numeric.Sundials.Arkode as T
-import           Numeric.Sundials.ODEOpts
+import           Numeric.Sundials.Types
 
 
 C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> T.sunCtx)

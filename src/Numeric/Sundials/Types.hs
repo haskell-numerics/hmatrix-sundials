@@ -1,5 +1,23 @@
 {-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
-module Numeric.Sundials.ODEOpts where
+module Numeric.Sundials.Types
+  ( OdeRhsCType
+  , OdeRhs(..)
+  , Jacobian
+  , StepControl(..)
+  , ODEOpts(..)
+  , SundialsDiagnostics(..)
+  , emptyDiagnostics
+  , SundialsSolution(..)
+  , EventInfo(..)
+  , CrossingDirection(..)
+  , EventSpec(..)
+  , SunVector(..)
+  , SunIndexType
+  , SunRealType
+  , sunContentLengthOffset
+  , sunContentDataOffset
+  )
+  where
 
 import           Data.Int (Int32)
 import qualified Data.Vector.Storable as VS
@@ -10,6 +28,7 @@ import           GHC.Generics (Generic)
 import           Foreign.C.Types
 import           Foreign.Ptr
 import           Numeric.Sundials.Arkode (SunVector(..),
+                                          SunIndexType, SunRealType,
                                           sunContentLengthOffset,
                                           sunContentDataOffset)
 
