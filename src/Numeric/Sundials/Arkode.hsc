@@ -10,7 +10,6 @@ module Numeric.Sundials.Arkode ( getDataFromContents
                                , vectorToC
                                , cV_SUCCESS
                                , cV_ROOT_RETURN
-                               , sunCtx
                                , SunIndexType
                                , SunRealType
                                , SunMatrix(..)
@@ -79,17 +78,6 @@ data SunMatrix = SunMatrix { rows :: CInt
 
 type SunIndexType = #type sunindextype
 type SunRealType = #type realtype
-
-sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ
-sunTypesTable = Map.fromList
-  [
-    (TypeName "sunindextype", [t| SunIndexType |] )
-  , (TypeName "SunVector",    [t| SunVector |] )
-  , (TypeName "SunMatrix",    [t| SunMatrix |] )
-  ]
-
-sunCtx :: Context
-sunCtx = mempty {ctxTypesTable = sunTypesTable}
 
 getMatrixDataFromContents :: Ptr SunMatrix -> IO SunMatrix
 getMatrixDataFromContents ptr = do

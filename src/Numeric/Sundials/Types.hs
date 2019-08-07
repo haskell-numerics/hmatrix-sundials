@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric, TemplateHaskell, OverloadedStrings #-}
 module Numeric.Sundials.Types
   ( OdeRhsCType
   , OdeRhs(..)
+  , UserData
   , Jacobian
   , StepControl(..)
   , ODEOpts(..)
@@ -16,31 +17,38 @@ module Numeric.Sundials.Types
   , SunRealType
   , sunContentLengthOffset
   , sunContentDataOffset
+  , sunCtx
   )
   where
 
 import           Data.Int (Int32)
 import qualified Data.Vector.Storable as VS
+import qualified Data.Map.Strict as Map
+import qualified Language.Haskell.TH as TH
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix)
 import           Control.DeepSeq (NFData)
 import           GHC.Generics (Generic)
 import           Foreign.C.Types
 import           Foreign.Ptr
-import           Numeric.Sundials.Arkode (SunVector(..),
+import           Language.C.Types as CT
+import           Language.C.Inline.Context
+import           Numeric.Sundials.Arkode (SunVector(..), SunMatrix(..),
                                           SunIndexType, SunRealType,
                                           sunContentLengthOffset,
                                           sunContentDataOffset)
 
 -- | The type of the C ODE RHS function.
-type OdeRhsCType = CDouble -> Ptr SunVector -> Ptr SunVector -> Ptr () -> IO CInt
+type OdeRhsCType = CDouble -> Ptr SunVector -> Ptr SunVector -> Ptr UserData -> IO CInt
+
+data UserData
 
 -- | The right-hand side of the ODE system.
 --
 -- Can be either a Haskell function or a pointer to a C function.
 data OdeRhs
   = OdeRhsHaskell (CDouble -> VS.Vector CDouble -> VS.Vector CDouble)
-  | OdeRhsC (FunPtr OdeRhsCType)
+  | OdeRhsC (FunPtr OdeRhsCType) (Ptr UserData)
 
 type Jacobian = Double -> Vector Double -> Matrix Double
 
@@ -125,3 +133,16 @@ data EventSpec = EventSpec
   , eventDirection :: CrossingDirection
   , eventUpdate :: Double -> VS.Vector Double -> VS.Vector Double
   }
+
+sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ
+sunTypesTable = Map.fromList
+  [
+    (TypeName "sunindextype", [t| SunIndexType |] )
+  , (TypeName "SunVector",    [t| SunVector |] )
+  , (TypeName "SunMatrix",    [t| SunMatrix |] )
+  , (TypeName "UserData",     [t| UserData |] )
+  ]
+
+-- | Allows to map between Haskell and C types
+sunCtx :: Context
+sunCtx = mempty {ctxTypesTable = sunTypesTable}

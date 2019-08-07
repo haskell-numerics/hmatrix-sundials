@@ -103,7 +103,7 @@ import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.Types
 
 
-C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> T.sunCtx)
+C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> sunCtx)
 
 C.include "<stdlib.h>"
 C.include "<stdio.h>"
@@ -300,19 +300,20 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       nTs = fromIntegral $ V.length ts
   output_mat_mut :: V.MVector _ CDouble <- V.thaw =<< createVector ((1 + fromIntegral dim) * (fromIntegral (2 * max_events) + fromIntegral nTs))
   diagMut :: V.MVector _ SunIndexType <- V.thaw =<< createVector 10 -- FIXME
-  rhs_funptr :: FunPtr OdeRhsCType <-
+  (rhs_funptr :: FunPtr OdeRhsCType, userdata :: Ptr UserData) <-
     case rhs of
-      OdeRhsC ptr -> return ptr
+      OdeRhsC ptr u -> return (ptr, u)
       OdeRhsHaskell fun -> do
         let
-          funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
+          funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr UserData -> IO CInt
           funIO t y f _ptr = do
             sv <- peek y
             poke f $ SunVector { sunVecN = sunVecN sv
                                , sunVecVals = fun t (sunVecVals sv)
                                }
             return 0
-        mkOdeRhsC funIO
+        funptr <- mkOdeRhsC funIO
+        return (funptr, nullPtr)
 
   let nrPre = fromIntegral nr
   gResults :: V.Vector CInt <- createVector nrPre
@@ -414,8 +415,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Call CVodeInit to initialize the integrator memory and specify the
                           * user's right hand side function in y'=f(t,y), the inital time T0, and
                           * the initial dependent variable vector y. */
-                         flag = CVodeInit(cvode_mem, $(int (* rhs_funptr) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
+                         flag = CVodeInit(cvode_mem, $(int (* rhs_funptr) (double t, SunVector y[], SunVector dydt[], UserData* params)), T0, y);
                          if (check_flag(&flag, "CVodeInit", 1)) return(1);
+                         flag = CVodeSetUserData(cvode_mem, $(UserData* userdata));
+                         if (check_flag(&flag, "CVodeSetUserData", 1)) return(1);
 
                          tv = N_VNew_Serial(NEQ); /* Create serial vector for absolute tolerances */
                          if (check_flag((void *)tv, "N_VNew_Serial", 0)) return 1;

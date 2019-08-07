@@ -218,7 +218,7 @@ import           Numeric.Sundials.Arkode (arkSMax,
                                           fEHLBERG_13_7_8)
 
 
-C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> T.sunCtx)
+C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> sunCtx)
 
 C.include "<stdlib.h>"
 C.include "<stdio.h>"

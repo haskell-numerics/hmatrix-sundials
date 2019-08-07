@@ -7,3 +7,6 @@
              NULL pointer
 */
 int check_flag(void *flagvalue, const char *funcname, int opt);
+
+/* Give void a name so that we can map it to the Haskell type UserData */
+typedef void UserData;
