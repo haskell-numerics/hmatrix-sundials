@@ -10,9 +10,12 @@ module Numeric.Sundials.Arkode ( getDataFromContents
                                , vectorToC
                                , cV_SUCCESS
                                , cV_ROOT_RETURN
-                               , sunCtx
+                               , SunIndexType
+                               , SunRealType
                                , SunMatrix(..)
                                , SunVector(..)
+                               , sunContentLengthOffset
+                               , sunContentDataOffset
                                , hEUN_EULER_2_1_2
                                , bOGACKI_SHAMPINE_4_2_3
                                , aRK324L2SA_ERK_4_2_3
@@ -37,7 +40,6 @@ module Numeric.Sundials.Arkode ( getDataFromContents
                                , aRK436L2SA_DIRK_6_3_4
                                , kVAERNO_7_4_5
                                , aRK548L2SA_DIRK_8_4_5
-                               , arkSMax
                                ) where
 
 import           Foreign
@@ -61,10 +63,12 @@ import qualified Data.Vector.Storable as V
 #include <nvector/nvector_serial.h>
 #include <sunmatrix/sunmatrix_dense.h>
 #include <arkode/arkode.h>
+#include <arkode/arkode_arkstep.h>
+#include <arkode/arkode_butcher_dirk.h>
 #include <cvode/cvode.h>
 
 
-data SunVector = SunVector { sunVecN    :: CLong
+data SunVector = SunVector { sunVecN    :: SunIndexType
                            , sunVecVals :: V.Vector CDouble
                            }
 
@@ -73,19 +77,8 @@ data SunMatrix = SunMatrix { rows :: CInt
                            , vals :: V.Vector CDouble
                            }
 
--- | This is true only if configured / built as 64 bits
-type SunIndexType = CLong
-
-sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ
-sunTypesTable = Map.fromList
-  [
-    (TypeName "sunindextype", [t| SunIndexType |] )
-  , (TypeName "SunVector",    [t| SunVector |] )
-  , (TypeName "SunMatrix",    [t| SunMatrix |] )
-  ]
-
-sunCtx :: Context
-sunCtx = mempty {ctxTypesTable = sunTypesTable}
+type SunIndexType = #type sunindextype
+type SunRealType = #type realtype
 
 getMatrixDataFromContents :: Ptr SunMatrix -> IO SunMatrix
 getMatrixDataFromContents ptr = do
@@ -110,7 +103,7 @@ putMatrixDataFromContents mat ptr = do
 instance Storable SunVector where
   poke p v    = putDataInContents (sunVecVals v) (fromIntegral $ sunVecN v) p
   peek p      = do (l, v) <- getDataFromContents p
-                   return $ SunVector { sunVecN = l
+                   return $ SunVector { sunVecN = fromIntegral l
                                       , sunVecVals = v
                                       }
   sizeOf _    = error "sizeOf not supported for SunVector"
@@ -132,7 +125,7 @@ vectorToC vec len ptr = do
   ptr' <- newForeignPtr_ ptr
   VS.copy (VM.unsafeFromForeignPtr0 ptr' len) vec
 
-getDataFromContents :: Ptr SunVector -> IO (CLong, VS.Vector CDouble)
+getDataFromContents :: Ptr SunVector -> IO (SunIndexType, VS.Vector CDouble)
 getDataFromContents ptr = do
   qtr <- getContentPtr ptr
   rtr <- getData qtr
@@ -152,6 +145,12 @@ putDataInContents vec len ptr = do
 
 #def typedef struct _generic_SUNMatrix SunMatrix;
 #def typedef struct _SUNMatrixContent_Dense SunMatrixContent;
+
+sunContentLengthOffset :: Int
+sunContentLengthOffset = #offset SunContent, length
+
+sunContentDataOffset :: Int
+sunContentDataOffset = #offset SunContent, data
 
 getContentMatrixPtr :: Storable a => Ptr b -> IO a
 getContentMatrixPtr ptr = (#peek SunMatrix, content) ptr
@@ -190,9 +189,6 @@ cV_ADAMS :: Int
 cV_ADAMS = #const CV_ADAMS
 cV_BDF :: Int
 cV_BDF = #const CV_BDF
-
-arkSMax :: Int
-arkSMax = #const ARK_S_MAX
 
 mIN_DIRK_NUM, mAX_DIRK_NUM :: Int
 mIN_DIRK_NUM = #const MIN_DIRK_NUM

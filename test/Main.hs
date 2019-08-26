@@ -1,18 +1,21 @@
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import qualified Numeric.Sundials.ARKode.ODE as ARK
 import qualified Numeric.Sundials.CVode.ODE  as CV
-import           Numeric.LinearAlgebra
-import           Numeric.Sundials.ODEOpts (ODEOpts(..))
+import           Numeric.LinearAlgebra as L
+import           Numeric.Sundials.Types
 
 import           Plots as P
 import qualified Diagrams.Prelude as D
 import           Diagrams.Backend.Rasterific
+import qualified Data.Vector.Storable as V
 
 import           Control.Lens
-
-import           Data.Functor.Compose
+import           Control.Monad
+import           Data.Coerce
+import           Foreign.C.Types
 
 import           Test.Hspec
 
@@ -71,7 +74,7 @@ brussJac _t x = tr $
 
 brusselatorWithJacobian :: Vector Double -> Bool -> CV.SolverResult
 brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
-                      (\t v -> vector $ brusselator t (toList v))
+                      (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       (if usejac then Just brussJac else Nothing)
                       (vector [1.2, 3.1, 3.0])
                       [] 0
@@ -87,17 +90,17 @@ brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
 
 brussRoot :: CV.SolverResult
 brussRoot = CV.odeSolveRootVWith' opts
-                      (\t v -> vector $ brusselator t (toList v))
+                      (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       Nothing
                       (vector [1.2, 3.1, 3.0])
                       events 100
                       (vector [0.0, 0.1 .. 10.0])
   where
     events =
-      [ CV.EventSpec { CV.eventCondition = brussRootFn
-                     , CV.eventUpdate =
+      [ EventSpec { eventCondition = brussRootFn
+                     , eventUpdate =
                          \_ev x -> let y = toList x in vector [(y!!0) + 0.5 , (y!!1), (y!!2)]
-                     , CV.eventDirection = CV.AnyDirection
+                     , eventDirection = AnyDirection
                      }
       ]
     opts = ODEOpts { maxNumSteps = 10000
@@ -117,16 +120,16 @@ brussRootFn _ v = case xs of
 
 exponential :: CV.SolverResult
 exponential = CV.odeSolveRootVWith' opts
-                      (\t y -> vector [y ! 0])
+                      (OdeRhsHaskell . coerce $ \(t :: Double) y -> vector [y ! 0])
                       Nothing
                       (vector [1])
                       events 100
                       (vector [ fromIntegral k / 100 | k <- [0..(22::Int)]])
   where
     events =
-      [ CV.EventSpec { CV.eventCondition = \t y -> y ! 0 - 1.1
-                     , CV.eventUpdate = \ev y -> vector [ 2 ]
-                     , CV.eventDirection = CV.Upwards
+      [ EventSpec { eventCondition = \t y -> y ! 0 - 1.1
+                     , eventUpdate = \ev y -> vector [ 2 ]
+                     , eventDirection = Upwards
                      }
       ]
     opts = ODEOpts { maxNumSteps = 10000
@@ -142,7 +145,7 @@ exponential = CV.odeSolveRootVWith' opts
 boundedSine :: CV.SolverResult
 boundedSine = CV.odeSolveRootVWith'
   opts
-  (\_t y -> vector [y ! 1, - y ! 0]) -- ODE RHS
+  (OdeRhsHaskell . coerce $ \(_t :: Double) y -> vector [y ! 1, - y ! 0]) -- ODE RHS
   Nothing
   (vector [0, 1]) -- initial conditions
   events
@@ -157,13 +160,13 @@ boundedSine = CV.odeSolveRootVWith'
                    , initStep = Nothing
                    }
     events =
-      [ CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 - 0.9
-                     , CV.eventUpdate = \_ y -> vector [ y ! 0, - abs (y ! 1) ]
-                     , CV.eventDirection = CV.Upwards
+      [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.9
+                     , eventUpdate = \_ y -> vector [ y ! 0, - abs (y ! 1) ]
+                     , eventDirection = Upwards
                      }
-      , CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 + 0.9
-                     , CV.eventUpdate = \_ y -> vector [ y ! 0, abs (y ! 1) ]
-                     , CV.eventDirection = CV.Downwards
+      , EventSpec { eventCondition = \_t y -> y ! 0 + 0.9
+                     , eventUpdate = \_ y -> vector [ y ! 0, abs (y ! 1) ]
+                     , eventDirection = Downwards
                      }
       ]
 
@@ -201,8 +204,8 @@ predatorPrey _t v = [ x * a - b * x * y
     f = 1.0
     g = 1.0
 
-roberts :: Double -> Vector Double -> Vector Double
-roberts t v = vector $ robertsAux t (toList v)
+roberts :: OdeRhs
+roberts = OdeRhsHaskell . coerce $ \(t :: Double) v -> vector $ robertsAux t (toList v)
   where
     robertsAux _ [y1, y2, y3] =
       [ -0.04 * y1 + 1.0e4 * y2 * y3
@@ -235,13 +238,13 @@ solve = CV.odeSolveRootVWith' opts
                    , initStep = Nothing
                    }
     events =
-      [ CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 - 0.0001
-                     , CV.eventUpdate = const id
-                     , CV.eventDirection = CV.AnyDirection
+      [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
+                     , eventUpdate = const id
+                     , eventDirection = AnyDirection
                      }
-      , CV.EventSpec { CV.eventCondition = \_t y -> y ! 2 - 0.01
-                     , CV.eventUpdate = const id
-                     , CV.eventDirection = CV.AnyDirection
+      , EventSpec { eventCondition = \_t y -> y ! 2 - 0.01
+                     , eventUpdate = const id
+                     , eventDirection = AnyDirection
                      }
       ]
 
@@ -259,13 +262,13 @@ solve2 = CV.odeSolveRootVWith' opts
                    , initStep = Nothing
                    }
     events =
-      [ CV.EventSpec { CV.eventCondition = \_t y -> y ! 0 - 0.0001
-                     , CV.eventUpdate = upd
-                     , CV.eventDirection = CV.AnyDirection
+      [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
+                     , eventUpdate = upd
+                     , eventDirection = AnyDirection
                      }
-      , CV.EventSpec { CV.eventCondition = \_t y -> y ! 2 - 0.01
-                     , CV.eventUpdate = upd
-                     , CV.eventDirection = CV.AnyDirection
+      , EventSpec { eventCondition = \_t y -> y ! 2 - 0.01
+                     , eventUpdate = upd
+                     , eventDirection = AnyDirection
                      }
       ]
     upd _ _ = vector [1.0, 0.0, 0.0]
@@ -284,9 +287,9 @@ solve1 = CV.odeSolveRootVWith' opts
                    , initStep = Nothing
                    }
     events =
-      [ CV.EventSpec { CV.eventCondition = \t _y -> t - 1.0
-                     , CV.eventUpdate = \t y -> vector [2.0, y!1, y!2]
-                     , CV.eventDirection = CV.AnyDirection
+      [ EventSpec { eventCondition = \t _y -> t - 1.0
+                     , eventUpdate = \t y -> vector [2.0, y!1, y!2]
+                     , eventDirection = AnyDirection
                      }
       ]
 
@@ -396,8 +399,8 @@ main = do
         case solve of
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 2
-            (abs (CV.eventTime (events!!0) - 0.2640208751331032) / 0.2640208751331032 < 1.0e-8) `shouldBe` True
-            (abs (CV.eventTime (events!!1) - 2.0786731062254436e7) / 2.0786731062254436e7 < 1.0e-8) `shouldBe` True
+            (abs (eventTime (events!!0) - 0.2640208751331032) / 0.2640208751331032 < 1.0e-8) `shouldBe` True
+            (abs (eventTime (events!!1) - 2.0786731062254436e7) / 2.0786731062254436e7 < 1.0e-8) `shouldBe` True
           CV.SolverError _ _ ->
             error "Root finding error!"
 
@@ -405,15 +408,14 @@ main = do
         case solve1 of
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 1
-            (abs (CV.eventTime (events!!0) - 1.0) / 1.0 < 1.0e-10) `shouldBe` True
+            (abs (eventTime (events!!0) - 1.0) / 1.0 < 1.0e-10) `shouldBe` True
           CV.SolverError _ _ ->
             error "Root finding error!"
 
   let cond7 =
         case solve2 of
-          CV.SolverSuccess {} ->
-            error "Solver returned Success"
-          CV.SolverError _ _ ->
+          CV.SolverSuccess events _ _ -> length events `shouldBe` 100
+          CV.SolverError _ _ -> error "solver failed"
             True
 
   case brussRoot of
@@ -433,21 +435,19 @@ main = do
               (D.dims2D 500.0 500.0)
               (renderAxis $ lSaxis2 $ toLists $ tr m)
             length events `shouldBe` 3
-            map CV.rootDirection events `shouldBe` [CV.Upwards, CV.Downwards, CV.Upwards]
-            map CV.eventIndex events `shouldBe` [0, 1, 0]
-            all ((< 1e-8) . abs) (zipWith (-)
-              (map CV.eventTime events)
-              [1.1197660081724263,3.3592952656818404,5.5988203973243])
-                `shouldBe` True
+            map rootDirection events `shouldBe` [Upwards, Downwards, Upwards]
+            map eventIndex events `shouldBe` [0, 1, 0]
+            forM_ (zip (map eventTime events) [1.1197660081724263,3.3592952656818404,5.5988203973243]) $ \(et_got, et_exp) ->
+              et_got `shouldSatisfy` ((< 1e-8) . abs . subtract et_exp)
           CV.SolverError m n ->
             expectationFailure "Solver error"
   let exponentialSpec = do
         case exponential of
           CV.SolverSuccess events _m _diagn -> do
             length events `shouldBe` 1
-            (abs (CV.eventTime (events!!0) - log 1.1) < 1e-4) `shouldBe` True
-            CV.rootDirection (events!!0) `shouldBe` CV.Upwards
-            CV.eventIndex (events!!0) `shouldBe` 0
+            (abs (eventTime (events!!0) - log 1.1) < 1e-4) `shouldBe` True
+            rootDirection (events!!0) `shouldBe` Upwards
+            eventIndex (events!!0) `shouldBe` 0
           CV.SolverError m n ->
             expectationFailure $ show n
 
@@ -455,23 +455,85 @@ main = do
         let ts = vector [0, 1 .. 10]
             CV.SolverSuccess _ m1 _ = robertsonWithJacobian ts True
             CV.SolverSuccess _ m2 _ = robertsonWithJacobian ts False
-        (norm_2 (m1-m2) < 1e-4) `shouldBe` True
+        norm_2 (m1-m2) `shouldSatisfy` (< 1e-4)
 
       brusselatorJac = do
         let ts = [0.0, 0.1 .. 10.0]
             CV.SolverSuccess _ m1 _ = brusselatorWithJacobian (vector ts) True
             CV.SolverSuccess _ m2 _ = brusselatorWithJacobian (vector ts) False
-        (norm_2 (m1-m2) < 1e-3) `shouldBe` True
+        norm_2 (m1-m2) `shouldSatisfy` (< 1e-3)
 
-  hspec $ describe "Compare results" $ do
-    it "Robertson should fail" $ cond7
-    it "Robertson time only" $ cond6
-    it "Robertson from SUNDIALS manual" $ cond5
-    it "Robertson with explicit Jacobian up to t=10" robertsonJac
-    it "Brusselator with explicit Jacobian" brusselatorJac
-    it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
-    it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
-    it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
-    it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
-    it "Bounded sine events" $ boundedSineSpec
-    it "Exponential events" $ exponentialSpec
+  hspec $ do
+    describe "Compare results" $ do
+      it "Robertson should stop early" cond7
+      it "Robertson time only" $ cond6
+      it "Robertson from SUNDIALS manual" $ cond5
+      it "Robertson with explicit Jacobian up to t=10" robertsonJac
+      it "Brusselator with explicit Jacobian" brusselatorJac
+      it "for SDIRK_5_3_4' and TRBDF2_3_3_2'" $ maxDiffA < 1.0e-6
+      it "for SDIRK_5_3_4' and BDF" $ maxDiffB < 1.0e-6
+      it "for TRBDF2_3_3_2' and BDF" $ maxDiffC < 1.0e-6
+      it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
+    describe "Handling empty systems" $
+      forM_ [("CVOde",CV.odeSolve),("ARKOde",ARK.odeSolve)] $ \(name, solveFn) ->
+        it name $
+          solveFn (\_ _ -> []) [] (V.enumFromTo 0 10) `shouldSatisfy` \sol ->
+            L.size sol == (11,0)
+    describe "Events" $ do
+      it "Bounded sine events" $ boundedSineSpec
+      it "Exponential events" $ exponentialSpec
+      describe "Discontinuous zero crossings" $ do
+        let
+          eq :: OdeRhs
+          eq = OdeRhsHaskell $ \_ _ -> V.singleton 1
+
+          cond
+            :: (Double -> Double -> Bool)
+            -> (Double -> Vector Double -> Double)
+          cond op _t y =
+            if V.head y `op` 0
+              then 1
+              else -1
+
+          solve op = CV.odeSolveWithEvents
+            opts
+            [EventSpec
+              { eventCondition = cond op
+              , eventDirection = AnyDirection
+              , eventUpdate = \_t y -> V.map (+1) y
+              }
+            ]
+            5 -- max # of events
+            eq
+            Nothing
+            (V.singleton (-1))
+            (V.fromList [0, 2])
+
+          ops :: [(String, Double -> Double -> Bool)]
+          ops =
+            [ (">=", (>=))
+            , (">",  (>))
+            , ("<=", (<=))
+            , ("<",  (<))
+            ]
+        forM_ ops $ \(op_name, op) -> it ("Event condition expressed as " ++ op_name) $ do
+          let
+            Right soln = solve op
+            evs = eventInfo soln
+            [ev] = evs
+          length evs `shouldBe` 1
+          eventTime ev `shouldSatisfy` (\t -> abs (t-1) < 1e-3)
+          -- row 0 is time 0, rows 1 and 2 are right before and right after
+          -- the event (time 1), row 3 is the end point (time 2)
+          solutionMatrix soln ! 1 ! 0 `shouldSatisfy` (\y -> abs y < 1e-3)
+          solutionMatrix soln ! 2 ! 0 `shouldSatisfy` (\y -> abs (y-1) < 1e-3)
+          solutionMatrix soln ! 3 ! 0 `shouldSatisfy` (\y -> abs (y-2) < 1e-3)
+
+  where
+    opts = ODEOpts { maxNumSteps = 10000
+                   , minStep     = 1.0e-12
+                   , maxFail     = 10
+                   , odeMethod = CV.BDF
+                   , stepControl = CV.ScXX' 1.0 1.0e-4 1.0 1.0 (vector [1.0e-8, 1.0e-14, 1.0e-6])
+                   , initStep = Nothing
+                   }

@@ -4,7 +4,6 @@
 #include <nvector/nvector_serial.h>        /* serial N_Vector types, fcts., macros */
 #include <sunmatrix/sunmatrix_dense.h>     /* access to dense SUNMatrix            */
 #include <sunlinsol/sunlinsol_dense.h>     /* access to dense SUNLinearSolver      */
-#include <arkode/arkode_direct.h>          /* access to ARKDls interface           */
 #include <sundials/sundials_types.h>       /* definition of type realtype          */
 #include <sundials/sundials_math.h>
 
