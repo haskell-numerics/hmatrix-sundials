@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -72,10 +73,6 @@ module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , ODEMethod(..)
                                    , StepControl(..)
                                    , SolverResult(..)
-                                   , SundialsSolution(..)
-                                   , EventSpec(..)
-                                   , EventInfo(..)
-                                   , CrossingDirection(..)
                                    ) where
 
 import qualified Language.C.Inline as C
@@ -85,8 +82,8 @@ import           Data.Monoid ((<>))
 import           Data.Maybe (isJust, fromJust)
 import           Data.List (genericLength)
 
-import           Foreign.C.Types (CDouble, CInt, CLong)
-import           Foreign.Ptr (Ptr)
+import           Foreign.C.Types (CDouble, CInt)
+import           Foreign.Ptr
 import           Foreign.Storable (peek, poke)
 
 import qualified Data.Vector.Storable as V
@@ -98,16 +95,16 @@ import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
-                                                subVector, subMatrix, toColumns)
+                                                subVector, subMatrix, toColumns, fromColumns, asColumn)
 
 import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
                                           vectorToC, cV_SUCCESS,
-                                          SunVector(..))
+                                          SunVector(..), SunIndexType)
 import qualified Numeric.Sundials.Arkode as T
-import           Numeric.Sundials.ODEOpts
+import           Numeric.Sundials.Types
 
 
-C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> T.sunCtx)
+C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> sunCtx)
 
 C.include "<stdlib.h>"
 C.include "<stdio.h>"
@@ -123,10 +120,10 @@ C.include "<sundials/sundials_math.h>"
 C.include "../../../helpers.h"
 C.include "Numeric/Sundials/Arkode_hsc.h"
 
-
--- | The direction in which a function should cross the x axis
-data CrossingDirection = Upwards | Downwards | AnyDirection
-  deriving (Eq, Show)
+-- | Stepping functions
+data ODEMethod = ADAMS
+               | BDF
+  deriving (Eq, Ord, Show, Read)
 
 -- Contrary to the documentation, it appears that CVodeGetRootInfo
 -- may use both 1 and -1 to indicate a root, depending on the
@@ -146,22 +143,6 @@ directionToInt d =
     Upwards -> 1
     Downwards -> -1
     AnyDirection -> 0
-
-data SundialsSolution =
-  SundialsSolution
-  { actualTimeGrid :: V.Vector Double                 -- ^ actual time grid returned by the solver (with duplicated event times)
-  , solutionMatrix :: Matrix Double                -- ^ matrix of solutions: each column is an unknwown (add also the time vector?)
-  , eventInfo      :: [EventInfo]         -- ^ event infos, as many items as triggered events during the simulation
-  , diagnostics    :: SundialsDiagnostics -- ^ usual Sundials diagnostics
-  }
-
-data EventInfo =
-  EventInfo
-  { eventTime     :: !Double            -- ^ time at which event was triggered
-  , eventIndex    :: !Int               -- ^ which index was triggered
-  , rootDirection :: !CrossingDirection -- ^ in which direction ((+)->(-) or (-)->(+)) the root is crossed
-  }
-  deriving Show
 
 getMethod :: ODEMethod -> Int
 getMethod (ADAMS) = cV_ADAMS
@@ -233,7 +214,7 @@ odeSolveVWith method control initStepSize f y0 tt =
                    }
 
 odeSolveVWith' ::
-  ODEOpts
+  ODEOpts ODEMethod
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector Double                     -- ^ Initial conditions
   -> V.Vector Double                     -- ^ Desired solution times
@@ -242,7 +223,7 @@ odeSolveVWith' opts f y0 tt =
   case solveOdeC (fromIntegral $ maxFail opts)
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
-                  (coerce f) (coerce y0)
+                  (OdeRhsHaskell $ coerce f) (coerce y0)
                   0 (\_ x -> x) [] 0 (\_ _ y -> y) (coerce tt) of
     -- Remove the time column for backwards compatibility
     SolverError m c         -> Left
@@ -271,15 +252,18 @@ matrixToSunMatrix m = T.SunMatrix { T.rows = nr, T.cols = nc, T.vals = vs }
     -- FIXME: efficiency
     vs = V.fromList $ map coerce $ concat $ toLists m
 
+foreign import ccall "wrapper"
+  mkOdeRhsC :: OdeRhsCType -> IO (FunPtr OdeRhsCType)
+
 solveOdeC ::
   CInt ->
-  CLong ->
+  SunIndexType ->
   CDouble ->
   CInt ->
   Maybe CDouble ->
   (Maybe (CDouble -> V.Vector CDouble -> T.SunMatrix)) ->
   (V.Vector CDouble, CDouble) ->
-  (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  OdeRhs -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector CDouble -- ^ Initial conditions
   -> CInt -- ^ Number of event equations
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
@@ -295,7 +279,10 @@ solveOdeC ::
   -> V.Vector CDouble -- ^ Desired solution times
   -> SolverResult
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
-          jacH (aTols, rTol) fun f0 nr event_fn directions max_events apply_event ts =
+          jacH (aTols, rTol) rhs f0 nr event_fn directions max_events apply_event ts
+  | V.null f0 = -- 0-dimensional (empty) system
+    SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
+  | otherwise =
   unsafePerformIO $ do
 
   let isInitStepSize :: CInt
@@ -309,21 +296,26 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
              Just x  -> x
 
   let dim = V.length f0
-      nEq :: CLong
+      nEq :: SunIndexType
       nEq = fromIntegral dim
       nTs :: CInt
       nTs = fromIntegral $ V.length ts
   output_mat_mut :: V.MVector _ CDouble <- V.thaw =<< createVector ((1 + fromIntegral dim) * (fromIntegral (2 * max_events) + fromIntegral nTs))
-  diagMut :: V.MVector _ CLong <- V.thaw =<< createVector 10 -- FIXME
-  -- We need the types that sundials expects.
-  -- FIXME: The Haskell type is currently empty!
-  let funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIO t y f _ptr = do
-        sv <- peek y
-        poke f $ SunVector { sunVecN = sunVecN sv
-                           , sunVecVals = fun t (sunVecVals sv)
-                           }
-        return 0
+  diagMut :: V.MVector _ SunIndexType <- V.thaw =<< createVector 10 -- FIXME
+  (rhs_funptr :: FunPtr OdeRhsCType, userdata :: Ptr UserData) <-
+    case rhs of
+      OdeRhsC ptr u -> return (ptr, u)
+      OdeRhsHaskell fun -> do
+        let
+          funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr UserData -> IO CInt
+          funIO t y f _ptr = do
+            sv <- peek y
+            poke f $ SunVector { sunVecN = sunVecN sv
+                               , sunVecVals = fun t (sunVecVals sv)
+                               }
+            return 0
+        funptr <- mkOdeRhsC funIO
+        return (funptr, nullPtr)
 
   let nrPre = fromIntegral nr
   gResults :: V.Vector CInt <- createVector nrPre
@@ -386,7 +378,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          SUNLinearSolver LS = NULL; /* empty linear solver object                   */
                          void *cvode_mem = NULL;    /* empty CVODE memory structure                 */
                          realtype t;
-                         long int nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
+                         long nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
 
                          realtype tout;
 
@@ -401,7 +393,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                             output_ind, but the inline-c expression is quite verbose, and output_ind is
                             more convenient to use in index calculations.
                          */
-			 ($vec-ptr:(int *n_rows_mut))[0] = output_ind;
+                         ($vec-ptr:(int *n_rows_mut))[0] = output_ind;
                          /* event_ind tracks the current event number */
                          int event_ind = 0;
 
@@ -425,8 +417,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          /* Call CVodeInit to initialize the integrator memory and specify the
                           * user's right hand side function in y'=f(t,y), the inital time T0, and
                           * the initial dependent variable vector y. */
-                         flag = CVodeInit(cvode_mem, $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
+                         flag = CVodeInit(cvode_mem, $(int (* rhs_funptr) (double t, SunVector y[], SunVector dydt[], UserData* params)), T0, y);
                          if (check_flag(&flag, "CVodeInit", 1)) return(1);
+                         flag = CVodeSetUserData(cvode_mem, $(UserData* userdata));
+                         if (check_flag(&flag, "CVodeSetUserData", 1)) return(1);
 
                          tv = N_VNew_Serial(NEQ); /* Create serial vector for absolute tolerances */
                          if (check_flag((void *)tv, "N_VNew_Serial", 0)) return 1;
@@ -437,7 +431,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          flag = CVodeSetMinStep(cvode_mem, $(double minStep_));
                          if (check_flag(&flag, "CVodeSetMinStep", 1)) return 1;
-                         flag = CVodeSetMaxNumSteps(cvode_mem, $(long int maxNumSteps_));
+                         flag = CVodeSetMaxNumSteps(cvode_mem, $(sunindextype maxNumSteps_));
                          if (check_flag(&flag, "CVodeSetMaxNumSteps", 1)) return 1;
                          flag = CVodeSetMaxErrTestFails(cvode_mem, $(int maxErrTestFails));
                          if (check_flag(&flag, "CVodeSetMaxErrTestFails", 1)) return 1;
@@ -477,7 +471,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          }
 
                          /* Store initial conditions */
-			 ($vec-ptr:(double *output_mat_mut))[0 * (NEQ + 1) + 0] = ($vec-ptr:(double *ts))[0];
+                         ($vec-ptr:(double *output_mat_mut))[0 * (NEQ + 1) + 0] = ($vec-ptr:(double *ts))[0];
                          for (j = 0; j < NEQ; j++) {
                            ($vec-ptr:(double *output_mat_mut))[0 * (NEQ + 1) + (j + 1)] = NV_Ith_S(y,j);
                          }
@@ -487,7 +481,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                            if (check_flag(&flag, "CVode solver failure, stopping integration", 1)) return 1;
 
                            /* Store the results for Haskell */
-			   ($vec-ptr:(double *output_mat_mut))[output_ind * (NEQ + 1) + 0] = t;
+                           ($vec-ptr:(double *output_mat_mut))[output_ind * (NEQ + 1) + 0] = t;
                            for (j = 0; j < NEQ; j++) {
                              ($vec-ptr:(double *output_mat_mut))[output_ind * (NEQ + 1) + (j + 1)] = NV_Ith_S(y,j);
                            }
@@ -496,7 +490,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                            if (flag == CV_ROOT_RETURN) {
                              if (event_ind >= $(int max_events)) {
-                               /* We don't have any more space for events. Return an error. */
+                               /* We reached the maximum number of events.
+                                  Either the maximum number of events is set to 0,
+                                  or there's a bug in our code below. In any case return an error.
+                               */
                                return 1;
                              }
 
@@ -504,8 +501,8 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                 If not, continue without any observable side-effects.
                              */
                              int good_event = 0;
-			     flag = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
-			     if (check_flag(&flag, "CVodeGetRootInfo", 1)) return 1;
+                             flag = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
+                             if (check_flag(&flag, "CVodeGetRootInfo", 1)) return 1;
                              for (i = 0; i < $(int nr); i++) {
                                int ev = ($vec-ptr:(int *gResMut))[i];
                                int req_dir = ($vec-ptr:(const int *requested_event_directions))[i];
@@ -530,6 +527,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                output_ind++;
                                ($vec-ptr:(int *n_rows_mut))[0] = output_ind;
 
+                               if (event_ind >= $(int max_events)) {
+                                 /* We collected the requested number of events. Stop the solver. */
+                                 break;
+                               }
                                flag = CVodeReInit(cvode_mem, t, y);
                                if (check_flag(&flag, "CVodeReInit", 1)) return(1);
                              } else {
@@ -538,52 +539,52 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                ($vec-ptr:(int *n_rows_mut))[0] = output_ind;
                              }
                            }
-			   else {
-			     if (++input_ind >= $(int nTs))
+                           else {
+                             if (++input_ind >= $(int nTs))
                                break;
-			   }
+                           }
                          }
 
-			 /* The number of actual roots we found */
-			 ($vec-ptr:(int *n_events_mut))[0] = event_ind;
+                         /* The number of actual roots we found */
+                         ($vec-ptr:(int *n_events_mut))[0] = event_ind;
 
                          /* Get some final statistics on how the solve progressed */
                          flag = CVodeGetNumSteps(cvode_mem, &nst);
                          check_flag(&flag, "CVodeGetNumSteps", 1);
-                         ($vec-ptr:(long int *diagMut))[0] = nst;
+                         ($vec-ptr:(sunindextype *diagMut))[0] = nst;
 
                          /* FIXME */
-                         ($vec-ptr:(long int *diagMut))[1] = 0;
+                         ($vec-ptr:(sunindextype *diagMut))[1] = 0;
 
                          flag = CVodeGetNumRhsEvals(cvode_mem, &nfe);
                          check_flag(&flag, "CVodeGetNumRhsEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[2] = nfe;
+                         ($vec-ptr:(sunindextype *diagMut))[2] = nfe;
                          /* FIXME */
-                         ($vec-ptr:(long int *diagMut))[3] = 0;
+                         ($vec-ptr:(sunindextype *diagMut))[3] = 0;
 
                          flag = CVodeGetNumLinSolvSetups(cvode_mem, &nsetups);
                          check_flag(&flag, "CVodeGetNumLinSolvSetups", 1);
-                         ($vec-ptr:(long int *diagMut))[4] = nsetups;
+                         ($vec-ptr:(sunindextype *diagMut))[4] = nsetups;
 
                          flag = CVodeGetNumErrTestFails(cvode_mem, &netf);
                          check_flag(&flag, "CVodeGetNumErrTestFails", 1);
-                         ($vec-ptr:(long int *diagMut))[5] = netf;
+                         ($vec-ptr:(sunindextype *diagMut))[5] = netf;
 
                          flag = CVodeGetNumNonlinSolvIters(cvode_mem, &nni);
                          check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1);
-                         ($vec-ptr:(long int *diagMut))[6] = nni;
+                         ($vec-ptr:(sunindextype *diagMut))[6] = nni;
 
                          flag = CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
                          check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
-                         ($vec-ptr:(long int *diagMut))[7] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[7] = ncfn;
 
                          flag = CVDlsGetNumJacEvals(cvode_mem, &nje);
                          check_flag(&flag, "CVDlsGetNumJacEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[8] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[8] = ncfn;
 
                          flag = CVDlsGetNumRhsEvals(cvode_mem, &nfeLS);
                          check_flag(&flag, "CVDlsGetNumRhsEvals", 1);
-                         ($vec-ptr:(long int *diagMut))[9] = ncfn;
+                         ($vec-ptr:(sunindextype *diagMut))[9] = ncfn;
 
                          /* Clean up and return */
 
@@ -595,6 +596,13 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          return CV_SUCCESS;
                        } |]
+
+  -- Free the allocated FunPtr. Ideally this should be done within
+  -- a bracket...
+  case rhs of
+    OdeRhsHaskell {} -> freeHaskellFunPtr rhs_funptr
+    OdeRhsC {} -> return () -- we didn't allocate this
+
   preD <- V.freeze diagMut
   let d = SundialsDiagnostics (fromIntegral $ preD V.!0)
                               (fromIntegral $ preD V.!1)
@@ -641,8 +649,8 @@ data SolverResult
     deriving Show
 
 odeSolveRootVWith' ::
-  ODEOpts
-  -> (Double -> V.Vector Double -> V.Vector Double)
+  ODEOpts ODEMethod
+  -> OdeRhs
       -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> Maybe (Double -> Vector Double -> Matrix Double)
       -- ^ The Jacobian (optional)
@@ -651,11 +659,11 @@ odeSolveRootVWith' ::
   -> Int                                  -- ^ Maximum number of events
   -> V.Vector Double                      -- ^ Desired solution times
   -> SolverResult
-odeSolveRootVWith' opts f mb_jacobian y0 event_specs nRootEvs tt =
+odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
   solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
-                 (coerce f) (coerce y0)
+                 rhs (coerce y0)
                  (genericLength event_specs) event_equations event_directions
                  (fromIntegral nRootEvs) reset_state
                  (coerce tt)
@@ -675,22 +683,23 @@ odeSolveRootVWith' opts f mb_jacobian y0 event_specs nRootEvs tt =
     reset_state :: Int -> CDouble -> Vector CDouble -> Vector CDouble
     reset_state n_event = coerce $ eventUpdate (event_specs !! n_event)
 
-data EventSpec = EventSpec
-  { eventCondition :: Double -> V.Vector Double -> Double
-  , eventDirection :: CrossingDirection
-  , eventUpdate :: Double -> V.Vector Double -> V.Vector Double
-  }
-
 odeSolveWithEvents
-  :: [EventSpec] -- ^ event specifications
-  -> Int -- ^ max number of events
-  -> (Double -> V.Vector Double -> V.Vector Double)     -- ^ RHS of the ODE system
-  -> Maybe (Double -> Vector Double -> Matrix Double)   -- ^ RHS of the ODE system
-  -> V.Vector Double                                    -- ^ initial conditions
-  -> ODEOpts
-  -> V.Vector Double -- ^ solution times
-  -> Either Int SundialsSolution -- ^ either an error code or a solution
-odeSolveWithEvents event_specs max_events rhs mb_jacobian initial opts sol_times =
+  :: ODEOpts ODEMethod
+  -> [EventSpec]
+    -- ^ Event specifications
+  -> Int
+    -- ^ Maximum number of events
+  -> OdeRhs
+    -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+  -> Maybe (Double -> Vector Double -> Matrix Double)
+    -- ^ The Jacobian (optional)
+  -> V.Vector Double
+    -- ^ Initial conditions
+  -> V.Vector Double
+    -- ^ Desired solution times
+  -> Either Int SundialsSolution
+    -- ^ Either an error code or a solution
+odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times =
   let
     result :: SolverResult
     result =
@@ -702,7 +711,7 @@ odeSolveWithEvents event_specs max_events rhs mb_jacobian initial opts sol_times
       SolverSuccess events mx diagn ->
         Right $ SundialsSolution
             { actualTimeGrid = extractTimeGrid mx
-            , solutionMatrix = mx
+            , solutionMatrix = dropTimeGrid mx
             , eventInfo = events
             , diagnostics = diagn
             }
@@ -710,3 +719,5 @@ odeSolveWithEvents event_specs max_events rhs mb_jacobian initial opts sol_times
     -- The time grid is the first column of the result matrix
     extractTimeGrid :: Matrix Double -> Vector Double
     extractTimeGrid = head . toColumns
+    dropTimeGrid :: Matrix Double -> Matrix Double
+    dropTimeGrid = fromColumns . tail . toColumns
