@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -112,6 +113,7 @@ C.include "<cvode/cvode.h>"               -- prototypes for CVODE fcts., consts.
 C.include "<nvector/nvector_serial.h>"    -- serial N_Vector types, fcts., macros
 C.include "<sunmatrix/sunmatrix_dense.h>" -- access to dense SUNMatrix
 C.include "<sunlinsol/sunlinsol_dense.h>" -- access to dense SUNLinearSolver
+C.include "<sunnonlinsol/sunnonlinsol_newton.h>"
 C.include "<cvode/cvode_direct.h>"        -- access to CVDls interface
 C.include "<sundials/sundials_types.h>"   -- definition of type realtype
 C.include "<sundials/sundials_math.h>"
@@ -376,7 +378,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          SUNLinearSolver LS = NULL; /* empty linear solver object                   */
                          void *cvode_mem = NULL;    /* empty CVODE memory structure                 */
                          realtype t;
-                         sunindextype nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
+                         long nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
 
                          realtype tout;
 
@@ -409,7 +411,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                            NV_Ith_S(y,i) = ($vec-ptr:(double *f0))[i];
                          };
 
-                         cvode_mem = CVodeCreate($(int method), CV_NEWTON);
+                         cvode_mem = CVodeCreate($(int method));
                          if (check_flag((void *)cvode_mem, "CVodeCreate", 0)) return(1);
 
                          /* Call CVodeInit to initialize the integrator memory and specify the
