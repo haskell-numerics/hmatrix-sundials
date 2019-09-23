@@ -218,7 +218,7 @@ odeSolveVWith' ::
   -> V.Vector Double                     -- ^ Desired solution times
   -> Either (Matrix Double, Int) (Matrix Double, SundialsDiagnostics) -- ^ Error code or solution
 odeSolveVWith' opts f y0 tt =
-  case solveOdeC (fromIntegral $ maxFail opts)
+  case unsafePerformIO $ solveOdeC (fromIntegral $ maxFail opts)
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
                   (OdeRhsHaskell $ coerce f) (coerce y0)
@@ -275,13 +275,12 @@ solveOdeC ::
       -- arguments are the time and the point in the state space. Return
       -- the updated point in the state space.
   -> V.Vector CDouble -- ^ Desired solution times
-  -> SolverResult
+  -> IO SolverResult
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
           jacH (aTols, rTol) rhs f0 nr event_fn directions max_events apply_event ts
   | V.null f0 = -- 0-dimensional (empty) system
-    SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
-  | otherwise =
-  unsafePerformIO $ do
+    return $ SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
+  | otherwise = do
 
   let isInitStepSize :: CInt
       isInitStepSize = fromIntegral $ fromEnum $ isJust initStepSize
@@ -656,7 +655,7 @@ odeSolveRootVWith' ::
   -> [EventSpec]                          -- ^ Event specifications
   -> Int                                  -- ^ Maximum number of events
   -> V.Vector Double                      -- ^ Desired solution times
-  -> SolverResult
+  -> IO SolverResult
 odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
   solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
@@ -695,24 +694,21 @@ odeSolveWithEvents
     -- ^ Initial conditions
   -> V.Vector Double
     -- ^ Desired solution times
-  -> Either Int SundialsSolution
+  -> IO (Either Int SundialsSolution)
     -- ^ Either an error code or a solution
-odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times =
-  let
-    result :: SolverResult
-    result =
-      odeSolveRootVWith' opts rhs mb_jacobian initial event_specs
+odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times = do
+  result :: SolverResult
+    <- odeSolveRootVWith' opts rhs mb_jacobian initial event_specs
         max_events sol_times
-  in
-    case result of
-      SolverError _ code -> Left code
-      SolverSuccess events mx diagn ->
-        Right $ SundialsSolution
-            { actualTimeGrid = extractTimeGrid mx
-            , solutionMatrix = dropTimeGrid mx
-            , eventInfo = events
-            , diagnostics = diagn
-            }
+  return $ case result of
+    SolverError _ code -> Left code
+    SolverSuccess events mx diagn ->
+      Right $ SundialsSolution
+          { actualTimeGrid = extractTimeGrid mx
+          , solutionMatrix = dropTimeGrid mx
+          , eventInfo = events
+          , diagnostics = diagn
+          }
   where
     -- The time grid is the first column of the result matrix
     extractTimeGrid :: Matrix Double -> Vector Double

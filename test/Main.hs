@@ -1,5 +1,6 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import qualified Numeric.Sundials.ARKode.ODE as ARK
@@ -72,7 +73,7 @@ brussJac _t x = tr $
     w = y !! 2
     eps = 5.0e-6
 
-brusselatorWithJacobian :: Vector Double -> Bool -> CV.SolverResult
+brusselatorWithJacobian :: Vector Double -> Bool -> IO  CV.SolverResult
 brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
                       (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       (if usejac then Just brussJac else Nothing)
@@ -88,7 +89,7 @@ brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
                    , initStep = Nothing
                    }
 
-brussRoot :: CV.SolverResult
+brussRoot :: IO CV.SolverResult
 brussRoot = CV.odeSolveRootVWith' opts
                       (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       Nothing
@@ -118,7 +119,7 @@ brussRootFn _ v = case xs of
   where
     xs = toList v
 
-exponential :: CV.SolverResult
+exponential :: IO CV.SolverResult
 exponential = CV.odeSolveRootVWith' opts
                       (OdeRhsHaskell . coerce $ \(t :: Double) y -> vector [y ! 0])
                       Nothing
@@ -142,7 +143,7 @@ exponential = CV.odeSolveRootVWith' opts
 
 -- A sine wave that only changes direction once it reaches ±0.9.
 -- Illustrates event-specific reset function
-boundedSine :: CV.SolverResult
+boundedSine :: IO CV.SolverResult
 boundedSine = CV.odeSolveRootVWith'
   opts
   (OdeRhsHaskell . coerce $ \(_t :: Double) y -> vector [y ! 1, - y ! 0]) -- ODE RHS
@@ -224,7 +225,7 @@ robertsJac _t (toList -> [y1, y2, y3]) = (3 >< 3)
 ts :: [Double]
 ts = take 12 $ map (* 10.0) (0.04 : ts)
 
-solve :: CV.SolverResult
+solve :: IO CV.SolverResult
 solve = CV.odeSolveRootVWith' opts
                       roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
@@ -248,7 +249,7 @@ solve = CV.odeSolveRootVWith' opts
                      }
       ]
 
-solve2 :: CV.SolverResult
+solve2 :: IO CV.SolverResult
 solve2 = CV.odeSolveRootVWith' opts
                       roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
@@ -273,7 +274,7 @@ solve2 = CV.odeSolveRootVWith' opts
       ]
     upd _ _ = vector [1.0, 0.0, 0.0]
 
-solve1 :: CV.SolverResult
+solve1 :: IO CV.SolverResult
 solve1 = CV.odeSolveRootVWith' opts
                       roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
@@ -293,7 +294,7 @@ solve1 = CV.odeSolveRootVWith' opts
                      }
       ]
 
-robertsonWithJacobian :: Vector Double -> Bool -> CV.SolverResult
+robertsonWithJacobian :: Vector Double -> Bool -> IO CV.SolverResult
 robertsonWithJacobian ts usejac = CV.odeSolveRootVWith' opts
                       roberts (if usejac then Just robertsJac else Nothing) (vector [1.0, 0.0, 0.0])
                       [] 0
@@ -396,7 +397,7 @@ main = do
                    zipWith (-) ((toLists $ tr res4)!!0) ((toLists $ tr res4a)!!0)
 
   let cond5 =
-        case solve of
+        solve >>= \case
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 2
             (abs (eventTime (events!!0) - 0.2640208751331032) / 0.2640208751331032 < 1.0e-8) `shouldBe` True
@@ -405,7 +406,7 @@ main = do
             error "Root finding error!"
 
   let cond6 =
-        case solve1 of
+        solve1 >>= \case
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 1
             (abs (eventTime (events!!0) - 1.0) / 1.0 < 1.0e-10) `shouldBe` True
@@ -413,12 +414,12 @@ main = do
             error "Root finding error!"
 
   let cond7 =
-        case solve2 of
+        solve2 >>= \case
           CV.SolverSuccess events _ _ -> length events `shouldBe` 100
           CV.SolverError _ _ -> error "solver failed"
             True
 
-  case brussRoot of
+  brussRoot >>= \case
     CV.SolverSuccess events m _diagn -> do
       renderRasterific
         "diagrams/brussRoot.png"
@@ -428,7 +429,7 @@ main = do
       expectationFailure $ show n
 
   let boundedSineSpec = do
-        case boundedSine of
+        boundedSine >>= \case
           CV.SolverSuccess events m _ -> do
             renderRasterific
               "diagrams/boundedSine.png"
@@ -442,7 +443,7 @@ main = do
           CV.SolverError m n ->
             expectationFailure "Solver error"
   let exponentialSpec = do
-        case exponential of
+        exponential >>= \case
           CV.SolverSuccess events _m _diagn -> do
             length events `shouldBe` 1
             (abs (eventTime (events!!0) - log 1.1) < 1e-4) `shouldBe` True
@@ -453,14 +454,14 @@ main = do
 
       robertsonJac = do
         let ts = vector [0, 1 .. 10]
-            CV.SolverSuccess _ m1 _ = robertsonWithJacobian ts True
-            CV.SolverSuccess _ m2 _ = robertsonWithJacobian ts False
+        CV.SolverSuccess _ m1 _ <- robertsonWithJacobian ts True
+        CV.SolverSuccess _ m2 _ <- robertsonWithJacobian ts False
         norm_2 (m1-m2) `shouldSatisfy` (< 1e-4)
 
       brusselatorJac = do
         let ts = [0.0, 0.1 .. 10.0]
-            CV.SolverSuccess _ m1 _ = brusselatorWithJacobian (vector ts) True
-            CV.SolverSuccess _ m2 _ = brusselatorWithJacobian (vector ts) False
+        CV.SolverSuccess _ m1 _ <- brusselatorWithJacobian (vector ts) True
+        CV.SolverSuccess _ m2 _ <- brusselatorWithJacobian (vector ts) False
         norm_2 (m1-m2) `shouldSatisfy` (< 1e-3)
 
   hspec $ do
@@ -517,8 +518,8 @@ main = do
             , ("<",  (<))
             ]
         forM_ ops $ \(op_name, op) -> it ("Event condition expressed as " ++ op_name) $ do
+          Right soln <- solve op
           let
-            Right soln = solve op
             evs = eventInfo soln
             [ev] = evs
           length evs `shouldBe` 1
