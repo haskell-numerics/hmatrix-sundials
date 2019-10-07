@@ -767,6 +767,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                               (fromIntegral $ preD V.!7)
                               (fromIntegral $ preD V.!8)
                               (fromIntegral $ preD V.!9)
+                              False
   m <- V.freeze qMatMut
   if res == 0
     then do

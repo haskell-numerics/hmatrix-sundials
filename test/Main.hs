@@ -529,6 +529,27 @@ main = do
           solutionMatrix soln ! 1 ! 0 `shouldSatisfy` (\y -> abs y < 1e-3)
           solutionMatrix soln ! 2 ! 0 `shouldSatisfy` (\y -> abs (y-1) < 1e-3)
           solutionMatrix soln ! 3 ! 0 `shouldSatisfy` (\y -> abs (y-2) < 1e-3)
+      it "Indicates when max_events is exceeded" $ do
+        let solve max_events = CV.odeSolveWithEvents
+              opts
+              [EventSpec
+                { eventCondition = \_ y -> y V.! 0 - 0.99999
+                , eventDirection = Upwards
+                , eventUpdate = \_t _y -> V.singleton 0
+                }
+              ]
+              max_events
+              (OdeRhsHaskell $ \_t _y -> V.singleton 1) -- the rhs
+              Nothing
+              (V.singleton 0) -- initial condition
+              (V.fromList [0, 10]) -- solution times
+        -- the event will be triggered 10 times on [0,10]
+        Right soln1 <- solve 10
+        length (eventInfo soln1) `shouldBe` 10
+        odeMaxEventsReached (diagnostics soln1) `shouldBe` True
+        Right soln2 <- solve 11
+        length (eventInfo soln1) `shouldBe` 10
+        odeMaxEventsReached (diagnostics soln2) `shouldBe` False
 
   where
     opts = ODEOpts { maxNumSteps = 10000

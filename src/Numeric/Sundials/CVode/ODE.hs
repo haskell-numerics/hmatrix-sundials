@@ -298,7 +298,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       nTs :: CInt
       nTs = fromIntegral $ V.length ts
   output_mat_mut :: V.MVector _ CDouble <- V.thaw =<< createVector ((1 + fromIntegral dim) * (fromIntegral (2 * max_events) + fromIntegral nTs))
-  diagMut :: V.MVector _ SunIndexType <- V.thaw =<< createVector 10 -- FIXME
+  -- diagMut is a mutable vector which we write diagnostic data while
+  -- solving. Its size corresponds to the number of fields in
+  -- SundialsDiagnostics.
+  diagMut :: V.MVector _ SunIndexType <- V.thaw =<< createVector 11 -- FIXME
   (rhs_funptr :: FunPtr OdeRhsCType, userdata :: Ptr UserData) <-
     case rhs of
       OdeRhsC ptr u -> return (ptr, u)
@@ -400,6 +403,9 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          sunindextype NEQ = $(sunindextype nEq);           /* number of dependent vars. */
 
                          /* Initialize data structures */
+
+                         /* Initialize odeMaxEventsReached to False */
+                         ($vec-ptr:(sunindextype *diagMut))[10] = 0;
 
                          y = N_VNew_Serial(NEQ); /* Create serial vector for solution */
                          if (check_flag((void *)y, "N_VNew_Serial", 0)) return 1;
@@ -526,6 +532,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                                if (event_ind >= $(int max_events)) {
                                  /* We collected the requested number of events. Stop the solver. */
+                                 ($vec-ptr:(sunindextype *diagMut))[10] = 1;
                                  break;
                                }
                                flag = CVodeReInit(cvode_mem, t, y);
@@ -611,6 +618,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                               (fromIntegral $ preD V.!7)
                               (fromIntegral $ preD V.!8)
                               (fromIntegral $ preD V.!9)
+                              (toEnum . fromIntegral $ preD V.! 10)
   n_rows <- fromIntegral . V.head <$> V.freeze n_rows_mut
   output_mat <- coerce . reshape (dim + 1) . subVector 0 ((dim + 1) * n_rows) <$>
     V.freeze output_mat_mut

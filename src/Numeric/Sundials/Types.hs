@@ -103,10 +103,11 @@ data SundialsDiagnostics = SundialsDiagnostics {
   , odeGetNumNonlinSolvConvFails :: Int
   , dlsGetNumJacEvals            :: Int
   , dlsGetNumRhsEvals            :: Int
+  , odeMaxEventsReached          :: Bool
   } deriving Show
 
 emptyDiagnostics :: SundialsDiagnostics
-emptyDiagnostics = SundialsDiagnostics 0 0 0 0 0 0 0 0 0 0
+emptyDiagnostics = SundialsDiagnostics 0 0 0 0 0 0 0 0 0 0 False
 
 data SundialsSolution =
   SundialsSolution
