@@ -6,7 +6,7 @@
 }:
 mkDerivation {
   pname = "hmatrix-sundials";
-  version = "0.20.1.0";
+  version = "0.20.2.0";
   src = ./.;
   isLibrary = true;
   isExecutable = true;

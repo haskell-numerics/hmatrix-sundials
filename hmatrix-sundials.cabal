@@ -1,5 +1,5 @@
 name:                hmatrix-sundials
-version:             0.20.1.0
+version:             0.20.2.0
 synopsis:            hmatrix interface to sundials
 description:         An interface to the solving suite SUNDIALS. Currently, it
                      mimics the solving interface in hmstrix-gsl but
@@ -36,6 +36,7 @@ library
                        Numeric.Sundials.ARKode.ODE,
                        Numeric.Sundials.CVode.ODE
   c-sources:           src/helpers.c
+                       src/helpers.h
   default-language:    Haskell2010
 
 test-suite hmatrix-sundials-testsuite
