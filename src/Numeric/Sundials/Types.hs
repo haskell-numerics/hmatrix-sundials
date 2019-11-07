@@ -131,8 +131,9 @@ data CrossingDirection = Upwards | Downwards | AnyDirection
 
 data EventSpec = EventSpec
   { eventCondition :: Double -> VS.Vector Double -> Double
-  , eventDirection :: CrossingDirection
-  , eventUpdate :: Double -> VS.Vector Double -> VS.Vector Double
+  , eventDirection :: !CrossingDirection
+  , eventUpdate :: Maybe (Double -> VS.Vector Double -> VS.Vector Double)
+      -- ^ if 'eventUpdate' is 'Nothing', we should just stop the solver
   }
 
 sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ

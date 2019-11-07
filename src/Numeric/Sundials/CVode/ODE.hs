@@ -78,7 +78,7 @@ import qualified Language.C.Inline as C
 import qualified Language.C.Inline.Unsafe as CU
 
 import           Data.Monoid ((<>))
-import           Data.Maybe (isJust, fromJust)
+import           Data.Maybe
 import           Data.List (genericLength)
 
 import           Foreign.C.Types (CDouble, CInt)
@@ -86,6 +86,7 @@ import           Foreign.Ptr
 import           Foreign.Storable (peek, poke)
 
 import qualified Data.Vector.Storable as V
+import qualified Data.Vector as VB -- B for Boxed
 
 import           Data.Coerce (coerce)
 import           System.IO.Unsafe (unsafePerformIO)
@@ -222,7 +223,7 @@ odeSolveVWith' opts f y0 tt =
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
                   (OdeRhsHaskell $ coerce f) (coerce y0)
-                  0 (\_ x -> x) [] 0 (\_ _ y -> y) (coerce tt) of
+                  0 (\_ x -> x) mempty mempty 0 (\_ _ y -> y) (coerce tt) of
     -- Remove the time column for backwards compatibility
     SolverError m c         -> Left
                                ( subMatrix (0, 1) (V.length tt, l) m
@@ -265,7 +266,8 @@ solveOdeC ::
   -> V.Vector CDouble -- ^ Initial conditions
   -> CInt -- ^ Number of event equations
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
-  -> [CrossingDirection] -- ^ The required crossing direction for each event
+  -> VB.Vector CrossingDirection -- ^ The required crossing direction for each event
+  -> V.Vector CInt -- ^ Whether an event should stop the solver
   -> CInt -- ^ Maximum number of events
   -> (Int -> CDouble -> V.Vector CDouble -> V.Vector CDouble)
       -- ^ Function to reset/update the state when an event occurs. The
@@ -277,7 +279,7 @@ solveOdeC ::
   -> V.Vector CDouble -- ^ Desired solution times
   -> IO SolverResult
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
-          jacH (aTols, rTol) rhs f0 nr event_fn directions max_events apply_event ts
+          jacH (aTols, rTol) rhs f0 nr event_fn directions event_stops_solver max_events apply_event ts
   | V.null f0 = -- 0-dimensional (empty) system
     return $ SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
   | otherwise = do
@@ -349,7 +351,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
         return 0
 
       requested_event_directions :: V.Vector CInt
-      requested_event_directions = V.fromList $ map directionToInt directions
+      requested_event_directions = V.convert $ VB.map directionToInt directions
 
   let isJac :: CInt
       isJac = fromIntegral $ fromEnum $ isJust jacH
@@ -504,6 +506,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                 If not, continue without any observable side-effects.
                              */
                              int good_event = 0;
+                             int stop_solver = 0;
                              flag = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
                              if (check_flag(&flag, "CVodeGetRootInfo", 1)) return 1;
                              for (i = 0; i < $(int nr); i++) {
@@ -516,10 +519,17 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                  ($vec-ptr:(int *event_index_mut))[event_ind] = i;
                                  ($vec-ptr:(double *event_time_mut))[event_ind] = t;
                                  event_ind++;
+                                 stop_solver = ($vec-ptr:(int *event_stops_solver))[i];
 
                                  /* Update the state with the supplied function */
-                                 $fun:(int (* apply_event_c) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
+                                 if (!stop_solver) {
+                                   $fun:(int (* apply_event_c) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
+                                 }
                                }
+                             }
+
+                             if (stop_solver) {
+                               break;
                              }
 
                              if (good_event) {
@@ -669,8 +679,11 @@ odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                  (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
                  rhs (coerce y0)
-                 (genericLength event_specs) event_equations event_directions
-                 (fromIntegral nRootEvs) reset_state
+                 (genericLength event_specs)
+                 event_equations
+                 event_directions
+                 event_stops_solver
+                 (fromIntegral nRootEvs) update_state
                  (coerce tt)
   where
     l = size y0
@@ -680,13 +693,23 @@ odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
     -- FIXME; Should we check that the length of ss is correct?
     scise (ScXX' aTol rTol yScale _yDotScale ss) = coerce (V.map (* aTol) ss, yScale * rTol)
     jacH = fmap (\g t v -> matrixToSunMatrix $ g (coerce t) (coerce v)) $ mb_jacobian
+    event_vec :: VB.Vector EventSpec
+    event_vec = VB.fromList event_specs
     event_equations :: CDouble -> Vector CDouble -> Vector CDouble
-    event_equations t y = V.fromList $
-      map (\ev -> coerce (eventCondition ev) t y) event_specs
-    event_directions :: [CrossingDirection]
-    event_directions = map eventDirection event_specs
-    reset_state :: Int -> CDouble -> Vector CDouble -> Vector CDouble
-    reset_state n_event = coerce $ eventUpdate (event_specs !! n_event)
+    event_equations t y = V.convert $
+      VB.map (\ev -> coerce (eventCondition ev) t y) event_vec
+    event_directions :: VB.Vector CrossingDirection
+    event_directions = VB.map eventDirection event_vec
+    event_stops_solver :: V.Vector CInt
+    event_stops_solver =
+      V.convert
+      . VB.map (fromIntegral . fromEnum . isNothing . eventUpdate)
+      $ event_vec
+    update_state :: Int -> CDouble -> Vector CDouble -> Vector CDouble
+    update_state n_event =
+      case eventUpdate (event_vec VB.! n_event) of
+        Nothing -> const id
+        Just f -> coerce f
 
 odeSolveWithEvents
   :: ODEOpts ODEMethod
