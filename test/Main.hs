@@ -550,6 +550,30 @@ main = do
         Right soln2 <- solve 11
         length (eventInfo soln1) `shouldBe` 10
         odeMaxEventsReached (diagnostics soln2) `shouldBe` False
+      it "Stops the solver when requested" $ do
+        let solve max_events = CV.odeSolveWithEvents
+              opts
+              [EventSpec
+                { eventCondition = \_ y -> y V.! 0 - 1
+                , eventDirection = Upwards
+                , eventUpdate = Nothing -- stop the solver!
+                }
+              ]
+              2 -- max_events XXX
+              (OdeRhsHaskell $ \_t _y -> V.singleton 1) -- the rhs
+              Nothing
+              (V.singleton 0) -- initial condition
+              (V.fromList [0, 10]) -- solution times
+        Right soln1 <- solve 10
+        length (eventInfo soln1) `shouldBe` 1
+        odeMaxEventsReached (diagnostics soln1) `shouldBe` False
+        let ev = head $ eventInfo soln1
+        eventTime ev `shouldSatisfy` (\x -> abs (x-1) < 1e-7)
+        eventIndex ev `shouldBe` 0
+        rootDirection ev `shouldBe` Upwards
+        V.length (actualTimeGrid soln1) `shouldBe` 2
+        actualTimeGrid soln1 V.! 1 `shouldSatisfy` (\x -> abs (x-1) < 1e-7)
+        L.size (solutionMatrix soln1) `shouldBe` (2,1)
 
   where
     opts = ODEOpts { maxNumSteps = 10000
