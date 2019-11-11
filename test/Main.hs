@@ -99,9 +99,10 @@ brussRoot = CV.odeSolveRootVWith' opts
   where
     events =
       [ EventSpec { eventCondition = brussRootFn
-                     , eventUpdate = Just $
+                     , eventUpdate =
                          \_ev x -> let y = toList x in vector [(y!!0) + 0.5 , (y!!1), (y!!2)]
                      , eventDirection = AnyDirection
+                     , eventStopSolver = False
                      }
       ]
     opts = ODEOpts { maxNumSteps = 10000
@@ -129,8 +130,9 @@ exponential = CV.odeSolveRootVWith' opts
   where
     events =
       [ EventSpec { eventCondition = \t y -> y ! 0 - 1.1
-                     , eventUpdate = Just $ \ev y -> vector [ 2 ]
+                     , eventUpdate = \ev y -> vector [ 2 ]
                      , eventDirection = Upwards
+                     , eventStopSolver = False
                      }
       ]
     opts = ODEOpts { maxNumSteps = 10000
@@ -162,12 +164,14 @@ boundedSine = CV.odeSolveRootVWith'
                    }
     events =
       [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.9
-                     , eventUpdate = Just $ \_ y -> vector [ y ! 0, - abs (y ! 1) ]
+                     , eventUpdate = \_ y -> vector [ y ! 0, - abs (y ! 1) ]
                      , eventDirection = Upwards
+                     , eventStopSolver = False
                      }
       , EventSpec { eventCondition = \_t y -> y ! 0 + 0.9
-                     , eventUpdate = Just $ \_ y -> vector [ y ! 0, abs (y ! 1) ]
+                     , eventUpdate = \_ y -> vector [ y ! 0, abs (y ! 1) ]
                      , eventDirection = Downwards
+                     , eventStopSolver = False
                      }
       ]
 
@@ -240,12 +244,14 @@ solve = CV.odeSolveRootVWith' opts
                    }
     events =
       [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
-                     , eventUpdate = Just $ const id
+                     , eventUpdate = const id
                      , eventDirection = AnyDirection
+                     , eventStopSolver = False
                      }
       , EventSpec { eventCondition = \_t y -> y ! 2 - 0.01
-                     , eventUpdate = Just $ const id
+                     , eventUpdate = const id
                      , eventDirection = AnyDirection
+                     , eventStopSolver = False
                      }
       ]
 
@@ -264,12 +270,14 @@ solve2 = CV.odeSolveRootVWith' opts
                    }
     events =
       [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
-                     , eventUpdate = Just $ upd
+                     , eventUpdate = upd
                      , eventDirection = AnyDirection
+                     , eventStopSolver = False
                      }
       , EventSpec { eventCondition = \_t y -> y ! 2 - 0.01
-                     , eventUpdate = Just $ upd
+                     , eventUpdate = upd
                      , eventDirection = AnyDirection
+                     , eventStopSolver = False
                      }
       ]
     upd _ _ = vector [1.0, 0.0, 0.0]
@@ -289,8 +297,9 @@ solve1 = CV.odeSolveRootVWith' opts
                    }
     events =
       [ EventSpec { eventCondition = \t _y -> t - 1.0
-                     , eventUpdate = Just $ \t y -> vector [2.0, y!1, y!2]
+                     , eventUpdate = \t y -> vector [2.0, y!1, y!2]
                      , eventDirection = AnyDirection
+                     , eventStopSolver = False
                      }
       ]
 
@@ -501,7 +510,8 @@ main = do
             [EventSpec
               { eventCondition = cond op
               , eventDirection = AnyDirection
-              , eventUpdate = Just $ \_t y -> V.map (+1) y
+              , eventUpdate = \_t y -> V.map (+1) y
+              , eventStopSolver = False
               }
             ]
             5 -- max # of events
@@ -535,7 +545,8 @@ main = do
               [EventSpec
                 { eventCondition = \_ y -> y V.! 0 - 0.99999
                 , eventDirection = Upwards
-                , eventUpdate = Just $ \_t _y -> V.singleton 0
+                , eventUpdate = \_t _y -> V.singleton 0
+                , eventStopSolver = False
                 }
               ]
               max_events
@@ -556,7 +567,8 @@ main = do
               [EventSpec
                 { eventCondition = \_ y -> y V.! 0 - 1
                 , eventDirection = Upwards
-                , eventUpdate = Nothing -- stop the solver!
+                , eventUpdate = \_ y -> V.singleton 42
+                , eventStopSolver = True
                 }
               ]
               2 -- max_events XXX
@@ -571,9 +583,11 @@ main = do
         eventTime ev `shouldSatisfy` (\x -> abs (x-1) < 1e-7)
         eventIndex ev `shouldBe` 0
         rootDirection ev `shouldBe` Upwards
-        V.length (actualTimeGrid soln1) `shouldBe` 2
+        V.length (actualTimeGrid soln1) `shouldBe` 3
         actualTimeGrid soln1 V.! 1 `shouldSatisfy` (\x -> abs (x-1) < 1e-7)
-        L.size (solutionMatrix soln1) `shouldBe` (2,1)
+        actualTimeGrid soln1 V.! 2 `shouldSatisfy` (\x -> abs (x-1) < 1e-7)
+        L.size (solutionMatrix soln1) `shouldBe` (3,1)
+        solutionMatrix soln1 ! 2 ! 0 `shouldBe` 42
 
   where
     opts = ODEOpts { maxNumSteps = 10000

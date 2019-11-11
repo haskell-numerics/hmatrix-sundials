@@ -522,14 +522,8 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                  stop_solver = ($vec-ptr:(int *event_stops_solver))[i];
 
                                  /* Update the state with the supplied function */
-                                 if (!stop_solver) {
-                                   $fun:(int (* apply_event_c) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
-                                 }
+                                 $fun:(int (* apply_event_c) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
                                }
-                             }
-
-                             if (stop_solver) {
-                               break;
                              }
 
                              if (good_event) {
@@ -545,6 +539,10 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                  ($vec-ptr:(sunindextype *diagMut))[10] = 1;
                                  break;
                                }
+                               if (stop_solver) {
+                                 break;
+                               }
+
                                flag = CVodeReInit(cvode_mem, t, y);
                                if (check_flag(&flag, "CVodeReInit", 1)) return(1);
                              } else {
@@ -703,13 +701,10 @@ odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
     event_stops_solver :: V.Vector CInt
     event_stops_solver =
       V.convert
-      . VB.map (fromIntegral . fromEnum . isNothing . eventUpdate)
+      . VB.map (fromIntegral . fromEnum . eventStopSolver)
       $ event_vec
     update_state :: Int -> CDouble -> Vector CDouble -> Vector CDouble
-    update_state n_event =
-      case eventUpdate (event_vec VB.! n_event) of
-        Nothing -> const id
-        Just f -> coerce f
+    update_state n_event = coerce $ eventUpdate (event_vec VB.! n_event)
 
 odeSolveWithEvents
   :: ODEOpts ODEMethod
