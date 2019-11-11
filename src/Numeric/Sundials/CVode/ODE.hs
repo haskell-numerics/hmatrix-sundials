@@ -534,12 +534,12 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                output_ind++;
                                ($vec-ptr:(int *n_rows_mut))[0] = output_ind;
 
+                               if (stop_solver) {
+                                 break;
+                               }
                                if (event_ind >= $(int max_events)) {
                                  /* We collected the requested number of events. Stop the solver. */
                                  ($vec-ptr:(sunindextype *diagMut))[10] = 1;
-                                 break;
-                               }
-                               if (stop_solver) {
                                  break;
                                }
 

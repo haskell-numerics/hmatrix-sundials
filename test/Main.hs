@@ -571,7 +571,7 @@ main = do
                 , eventStopSolver = True
                 }
               ]
-              2 -- max_events XXX
+              1 -- max_events
               (OdeRhsHaskell $ \_t _y -> V.singleton 1) -- the rhs
               Nothing
               (V.singleton 0) -- initial condition
