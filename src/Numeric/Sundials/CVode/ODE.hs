@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -80,12 +81,14 @@ import qualified Language.C.Inline.Unsafe as CU
 import           Data.Monoid ((<>))
 import           Data.Maybe
 import           Data.List (genericLength)
+import           Control.Applicative
 
 import           Foreign.C.Types (CDouble, CInt)
 import           Foreign.Ptr
 import           Foreign.Storable (peek, poke)
 
 import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as VM
 import qualified Data.Vector as VB -- B for Boxed
 
 import           Data.Coerce (coerce)
@@ -108,6 +111,7 @@ C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> sunCtx)
 
 C.include "<stdlib.h>"
 C.include "<stdio.h>"
+C.include "<string.h>"
 C.include "<math.h>"
 C.include "<cvode/cvode.h>"               -- prototypes for CVODE fcts., consts.
 C.include "<nvector/nvector_serial.h>"    -- serial N_Vector types, fcts., macros
@@ -225,9 +229,9 @@ odeSolveVWith' opts f y0 tt =
                   (OdeRhsHaskell $ coerce f) (coerce y0)
                   0 (\_ x -> x) mempty mempty 0 (\_ _ y -> y) (coerce tt) of
     -- Remove the time column for backwards compatibility
-    SolverError m c         -> Left
-                               ( subMatrix (0, 1) (V.length tt, l) m
-                               , fromIntegral c
+    SolverError (ErrorDiagnostics {errorCode, partialResults}) -> Left
+                               ( subMatrix (0, 1) (V.length tt, l) partialResults
+                               , fromIntegral errorCode
                                )
     SolverSuccess _ m d     -> Right
                                ( subMatrix (0, 1) (V.length tt, l) m
@@ -334,6 +338,15 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
   n_rows_mut :: V.MVector _ CInt <- V.thaw =<< createVector 1
   actual_event_direction_mut :: V.MVector _ CInt <- V.thaw =<< createVector (fromIntegral max_events)
 
+  -- The vector containing local error estimates
+  local_errors_mut :: V.MVector _ CDouble <- V.thaw =<< createVector dim
+  -- The vector containing variable weights
+  var_weights_mut :: V.MVector _ CDouble <- V.thaw =<< createVector dim
+  -- The flag indicating whether local_errors_mut is filled with meaningful
+  -- values
+  local_errors_set :: V.MVector _ CInt <- V.thaw =<< createVector 1
+  VM.write local_errors_set 0 0
+
   let event_fn_c :: CDouble -> Ptr T.SunVector -> Ptr CDouble -> Ptr () -> IO CInt
       event_fn_c x y f _ptr = do
         vals <- event_fn x <$> (sunVecVals <$> peek y)
@@ -353,7 +366,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       requested_event_directions :: V.Vector CInt
       requested_event_directions = V.convert $ VB.map directionToInt directions
 
-  let isJac :: CInt
+      isJac :: CInt
       isJac = fromIntegral $ fromEnum $ isJust jacH
       jacIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunMatrix ->
                Ptr () -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunVector ->
@@ -483,7 +496,25 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          while (1) {
                            flag = CVode(cvode_mem, ($vec-ptr:(double *ts))[input_ind], y, &t, CV_NORMAL); /* call integrator */
-                           if (check_flag(&flag, "CVode solver failure, stopping integration", 1)) return 1;
+                           if (check_flag(&flag, "CVode solver failure, stopping integration", 1)) {
+                             N_Vector ele = N_VNew_Serial(NEQ);
+                             N_Vector weights = N_VNew_Serial(NEQ);
+                             flag = CVodeGetEstLocalErrors(cvode_mem, ele);
+                             // CV_SUCCESS is defined is 0, so we OR the flags
+                             flag = flag || CVodeGetErrWeights(cvode_mem, weights);
+                             if (flag == CV_SUCCESS) {
+                               double *arr_ptr = N_VGetArrayPointer(ele);
+                               memcpy(($vec-ptr:(double *local_errors_mut)), arr_ptr, NEQ * sizeof(double));
+
+                               arr_ptr = N_VGetArrayPointer(weights);
+                               memcpy(($vec-ptr:(double *var_weights_mut)), arr_ptr, NEQ * sizeof(double));
+
+                               ($vec-ptr:(int *local_errors_set))[0] = 1;
+                             }
+                             N_VDestroy(ele);
+                             N_VDestroy(weights);
+                             return 1;
+                           }
 
                            /* Store the results for Haskell */
                            ($vec-ptr:(double *output_mat_mut))[output_ind * (NEQ + 1) + 0] = t;
@@ -637,6 +668,15 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
     <- V.map fromIntegral . V.take n_events <$> V.freeze event_index_mut
   actual_event_direction :: V.Vector CInt
     <- V.take n_events <$> V.freeze actual_event_direction_mut
+  (local_errors, var_weights) <- do
+    set <- VM.read local_errors_set 0
+    if set == 1
+      then coerce <$>
+        (liftA2 (,)
+          (V.freeze local_errors_mut)
+          (V.freeze var_weights_mut))
+      else mempty
+
   let
     events :: [EventInfo]
     events = zipWith3 EventInfo
@@ -648,11 +688,15 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       then
         SolverSuccess events output_mat d
       else
-        SolverError output_mat res
+        SolverError ErrorDiagnostics
+          { partialResults = output_mat
+          , errorCode = res
+          , errorEstimates = local_errors
+          , varWeights = var_weights
+          }
 
 data SolverResult
-  = SolverError !(Matrix Double) !Int
-      -- ^ Partial results and error code
+  = SolverError !ErrorDiagnostics
   | SolverSuccess
       [EventInfo]
       !(Matrix Double)
@@ -720,14 +764,14 @@ odeSolveWithEvents
     -- ^ Initial conditions
   -> V.Vector Double
     -- ^ Desired solution times
-  -> IO (Either Int SundialsSolution)
+  -> IO (Either ErrorDiagnostics SundialsSolution)
     -- ^ Either an error code or a solution
 odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times = do
   result :: SolverResult
     <- odeSolveRootVWith' opts rhs mb_jacobian initial event_specs
         max_events sol_times
   return $ case result of
-    SolverError _ code -> Left code
+    SolverError diagn -> Left diagn
     SolverSuccess events mx diagn ->
       Right $ SundialsSolution
           { actualTimeGrid = extractTimeGrid mx

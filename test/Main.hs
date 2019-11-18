@@ -411,21 +411,21 @@ main = do
             length events `shouldBe` 2
             (abs (eventTime (events!!0) - 0.2640208751331032) / 0.2640208751331032 < 1.0e-8) `shouldBe` True
             (abs (eventTime (events!!1) - 2.0786731062254436e7) / 2.0786731062254436e7 < 1.0e-8) `shouldBe` True
-          CV.SolverError _ _ ->
-            error "Root finding error!"
+          CV.SolverError e ->
+            error $ "Root finding error!\n" ++ show e
 
   let cond6 =
         solve1 >>= \case
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 1
             (abs (eventTime (events!!0) - 1.0) / 1.0 < 1.0e-10) `shouldBe` True
-          CV.SolverError _ _ ->
+          CV.SolverError _ ->
             error "Root finding error!"
 
   let cond7 =
         solve2 >>= \case
           CV.SolverSuccess events _ _ -> length events `shouldBe` 100
-          CV.SolverError _ _ -> error "solver failed"
+          CV.SolverError _ -> error "solver failed"
             True
 
   brussRoot >>= \case
@@ -434,8 +434,8 @@ main = do
         "diagrams/brussRoot.png"
         (D.dims2D 500.0 500.0)
         (renderAxis $ lSaxis $ toLists $ tr m)
-    CV.SolverError m n ->
-      expectationFailure $ show n
+    CV.SolverError e ->
+      expectationFailure $ show $ errorCode e
 
   let boundedSineSpec = do
         boundedSine >>= \case
@@ -449,7 +449,7 @@ main = do
             map eventIndex events `shouldBe` [0, 1, 0]
             forM_ (zip (map eventTime events) [1.1197660081724263,3.3592952656818404,5.5988203973243]) $ \(et_got, et_exp) ->
               et_got `shouldSatisfy` ((< 1e-8) . abs . subtract et_exp)
-          CV.SolverError m n ->
+          CV.SolverError {} ->
             expectationFailure "Solver error"
   let exponentialSpec = do
         exponential >>= \case
@@ -458,8 +458,8 @@ main = do
             (abs (eventTime (events!!0) - log 1.1) < 1e-4) `shouldBe` True
             rootDirection (events!!0) `shouldBe` Upwards
             eventIndex (events!!0) `shouldBe` 0
-          CV.SolverError m n ->
-            expectationFailure $ show n
+          CV.SolverError e ->
+            expectationFailure $ show $ errorCode e
 
       robertsonJac = do
         let ts = vector [0, 1 .. 10]

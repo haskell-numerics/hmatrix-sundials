@@ -7,6 +7,7 @@ module Numeric.Sundials.Types
   , StepControl(..)
   , ODEOpts(..)
   , SundialsDiagnostics(..)
+  , ErrorDiagnostics(..)
   , emptyDiagnostics
   , SundialsSolution(..)
   , EventInfo(..)
@@ -116,6 +117,23 @@ data SundialsSolution =
   , eventInfo      :: [EventInfo]         -- ^ event infos, as many items as triggered events during the simulation
   , diagnostics    :: SundialsDiagnostics -- ^ usual Sundials diagnostics
   }
+
+data ErrorDiagnostics = ErrorDiagnostics
+  { errorCode :: !Int
+    -- ^ The numeric error code. Mostly useless at this point, since it is
+    -- set to 1 under most error conditions. See 'solveOdeC'.
+  , errorEstimates :: !(VS.Vector Double)
+    -- ^ The local error estimates as returned by @CVodeGetEstLocalErrors@.
+    -- Either an empty vector, or has the same dimensionality as the state
+    -- space.
+  , varWeights :: !(VS.Vector Double)
+    -- ^ The weights with which errors are combined, equal to @1 / (atol_i + y_i * rtol)@.
+    -- Either an empty vector, or has the same dimensionality as the state
+    -- space.
+  , partialResults :: !(Matrix Double)
+    -- ^ Partial solution of the ODE system, up until the moment when
+    -- solving failed.
+  } deriving Show
 
 data EventInfo =
   EventInfo
