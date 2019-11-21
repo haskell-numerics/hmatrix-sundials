@@ -57,6 +57,8 @@ import           Language.C.Inline.Context
 
 import qualified Data.Vector.Storable as V
 
+import Katip
+
 
 #include <stdio.h>
 #include <sundials/sundials_nvector.h>

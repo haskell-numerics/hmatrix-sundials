@@ -92,7 +92,6 @@ import qualified Data.Vector.Storable.Mutable as VM
 import qualified Data.Vector as VB -- B for Boxed
 
 import           Data.Coerce (coerce)
-import           System.IO.Unsafe (unsafePerformIO)
 
 import           Numeric.LinearAlgebra.Devel (createVector)
 
@@ -106,6 +105,9 @@ import           Numeric.Sundials.Arkode (cV_ADAMS, cV_BDF,
 import qualified Numeric.Sundials.Arkode as T
 import           Numeric.Sundials.Types
 
+import Control.Monad.IO.Class
+import Katip
+
 
 C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> sunCtx)
 
@@ -113,6 +115,7 @@ C.include "<stdlib.h>"
 C.include "<stdio.h>"
 C.include "<string.h>"
 C.include "<math.h>"
+C.include "<arkode/arkode.h>"
 C.include "<cvode/cvode.h>"               -- prototypes for CVODE fcts., consts.
 C.include "<nvector/nvector_serial.h>"    -- serial N_Vector types, fcts., macros
 C.include "<sunmatrix/sunmatrix_dense.h>" -- access to dense SUNMatrix
@@ -156,7 +159,8 @@ getJacobian _ = Nothing
 
 -- | A version of 'odeSolveVWith' with reasonable default step control.
 odeSolveV
-    :: ODEMethod
+    :: (Katip m, MonadIO m)
+    => ODEMethod
     -> Maybe Double      -- ^ initial step size - by default, CVode
                          -- estimates the initial step size to be the
                          -- solution \(h\) of the equation
@@ -168,7 +172,7 @@ odeSolveV
     -> (Double -> Vector Double -> Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
     -> Vector Double     -- ^ initial conditions
     -> Vector Double     -- ^ desired solution times
-    -> Matrix Double     -- ^ solution
+    -> m (Matrix Double) -- ^ solution
 odeSolveV meth hi epsAbs epsRel f y0 ts =
   odeSolveVWith meth (X epsAbs epsRel) hi g y0 ts
   where
@@ -178,10 +182,11 @@ odeSolveV meth hi epsAbs epsRel f y0 ts =
 -- system of equations defined using lists. FIXME: we should say
 -- something about the fact we could use the Jacobian but don't for
 -- compatibility with hmatrix-gsl.
-odeSolve :: (Double -> [Double] -> [Double]) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+odeSolve :: (MonadIO m, Katip m)
+         => (Double -> [Double] -> [Double]) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
          -> [Double]                         -- ^ initial conditions
          -> Vector Double                    -- ^ desired solution times
-         -> Matrix Double                    -- ^ solution
+         -> m (Matrix Double)                -- ^ solution
 odeSolve f y0 ts =
   -- FIXME: These tolerances are different from the ones in GSL
   odeSolveVWith BDF (XX' 1.0e-6 1.0e-10 1 1)  Nothing g (V.fromList y0) (V.fromList $ toList ts)
@@ -190,8 +195,9 @@ odeSolve f y0 ts =
 
 -- | A version of 'odeSolveVWith'' with reasonable default solver
 -- options.
-odeSolveVWith ::
-  ODEMethod
+odeSolveVWith
+  :: (Katip m, MonadIO m)
+  => ODEMethod
   -> StepControl
   -> Maybe Double -- ^ initial step size - by default, CVode
                   -- estimates the initial step size to be the
@@ -202,11 +208,12 @@ odeSolveVWith ::
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector Double                     -- ^ Initial conditions
   -> V.Vector Double                     -- ^ Desired solution times
-  -> Matrix Double                       -- ^ Error code or solution
-odeSolveVWith method control initStepSize f y0 tt =
-  case odeSolveVWith' opts f y0 tt of
+  -> m (Matrix Double)                       -- ^ Error code or solution
+odeSolveVWith method control initStepSize f y0 tt = do
+  r <- odeSolveVWith' opts f y0 tt
+  case r of
     Left  (c, _v) -> error $ show c -- FIXME
-    Right (v, _d) -> v
+    Right (v, _d) -> return v
   where
     opts = ODEOpts { maxNumSteps = 10000
                    , minStep     = 1.0e-12
@@ -216,18 +223,20 @@ odeSolveVWith method control initStepSize f y0 tt =
                    , initStep    = initStepSize
                    }
 
-odeSolveVWith' ::
-  ODEOpts ODEMethod
+odeSolveVWith'
+  :: (Katip m, MonadIO m)
+  => ODEOpts ODEMethod
   -> (Double -> V.Vector Double -> V.Vector Double) -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector Double                     -- ^ Initial conditions
   -> V.Vector Double                     -- ^ Desired solution times
-  -> Either (Matrix Double, Int) (Matrix Double, SundialsDiagnostics) -- ^ Error code or solution
-odeSolveVWith' opts f y0 tt =
-  case unsafePerformIO $ solveOdeC (fromIntegral $ maxFail opts)
+  -> m (Either (Matrix Double, Int) (Matrix Double, SundialsDiagnostics)) -- ^ Error code or solution
+odeSolveVWith' opts f y0 tt = do
+  r <- solveOdeC (fromIntegral $ maxFail opts)
                   (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
                   (fromIntegral . getMethod . odeMethod $ opts) (coerce $ initStep opts) jacH (scise $ stepControl opts)
                   (OdeRhsHaskell $ coerce f) (coerce y0)
-                  0 (\_ x -> x) mempty mempty 0 (\_ _ y -> y) (coerce tt) of
+                  0 (\_ x -> x) mempty mempty 0 (\_ _ y -> y) (coerce tt)
+  return $ case r of
     -- Remove the time column for backwards compatibility
     SolverError (ErrorDiagnostics {errorCode, partialResults}) -> Left
                                ( subMatrix (0, 1) (V.length tt, l) partialResults
@@ -258,15 +267,16 @@ matrixToSunMatrix m = T.SunMatrix { T.rows = nr, T.cols = nc, T.vals = vs }
 foreign import ccall "wrapper"
   mkOdeRhsC :: OdeRhsCType -> IO (FunPtr OdeRhsCType)
 
-solveOdeC ::
-  CInt ->
-  SunIndexType ->
-  CDouble ->
-  CInt ->
-  Maybe CDouble ->
-  (Maybe (CDouble -> V.Vector CDouble -> T.SunMatrix)) ->
-  (V.Vector CDouble, CDouble) ->
-  OdeRhs -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
+solveOdeC
+  :: (Katip m, MonadIO m)
+  => CInt
+  -> SunIndexType
+  -> CDouble
+  -> CInt
+  -> Maybe CDouble
+  -> (Maybe (CDouble -> V.Vector CDouble -> T.SunMatrix))
+  -> (V.Vector CDouble, CDouble)
+  -> OdeRhs -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> V.Vector CDouble -- ^ Initial conditions
   -> CInt -- ^ Number of event equations
   -> (CDouble -> V.Vector CDouble -> V.Vector CDouble) -- ^ The event equations themselves
@@ -281,12 +291,16 @@ solveOdeC ::
       -- arguments are the time and the point in the state space. Return
       -- the updated point in the state space.
   -> V.Vector CDouble -- ^ Desired solution times
-  -> IO SolverResult
+  -> m SolverResult
 solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
           jacH (aTols, rTol) rhs f0 nr event_fn directions event_stops_solver max_events apply_event ts
   | V.null f0 = -- 0-dimensional (empty) system
     return $ SolverSuccess [] (asColumn (coerce ts)) emptyDiagnostics
   | otherwise = do
+
+  report_error <- logWithKatip
+
+  liftIO $ do -- the rest is in the IO monad
 
   let isInitStepSize :: CInt
       isInitStepSize = fromIntegral $ fromEnum $ isJust initStepSize
@@ -419,73 +433,78 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          /* Initialize data structures */
 
+                         ARKErrHandlerFn report_error = $fun:(void (*report_error)(int,const char*, const char*, char*, void*));
+
                          /* Initialize odeMaxEventsReached to False */
                          ($vec-ptr:(sunindextype *diagMut))[10] = 0;
 
                          y = N_VNew_Serial(NEQ); /* Create serial vector for solution */
-                         if (check_flag((void *)y, "N_VNew_Serial", 0)) return 1;
+                         if (check_flag((void *)y, "N_VNew_Serial", 0, report_error)) return 1;
                          /* Specify initial condition */
                          for (i = 0; i < NEQ; i++) {
                            NV_Ith_S(y,i) = ($vec-ptr:(double *f0))[i];
                          };
 
                          cvode_mem = CVodeCreate($(int method), CV_NEWTON);
-                         if (check_flag((void *)cvode_mem, "CVodeCreate", 0)) return(1);
+                         if (check_flag((void *)cvode_mem, "CVodeCreate", 0, report_error)) return(1);
+
+                         flag = CVodeSetErrHandlerFn(cvode_mem, report_error, NULL);
+                         if (check_flag(&flag, "CVodeSetErrHandlerFn", 1, report_error)) return 1;
 
                          /* Call CVodeInit to initialize the integrator memory and specify the
                           * user's right hand side function in y'=f(t,y), the inital time T0, and
                           * the initial dependent variable vector y. */
                          flag = CVodeInit(cvode_mem, $(int (* rhs_funptr) (double t, SunVector y[], SunVector dydt[], UserData* params)), T0, y);
-                         if (check_flag(&flag, "CVodeInit", 1)) return(1);
+                         if (check_flag(&flag, "CVodeInit", 1, report_error)) return(1);
                          flag = CVodeSetUserData(cvode_mem, $(UserData* userdata));
-                         if (check_flag(&flag, "CVodeSetUserData", 1)) return(1);
+                         if (check_flag(&flag, "CVodeSetUserData", 1, report_error)) return(1);
 
                          tv = N_VNew_Serial(NEQ); /* Create serial vector for absolute tolerances */
-                         if (check_flag((void *)tv, "N_VNew_Serial", 0)) return 1;
+                         if (check_flag((void *)tv, "N_VNew_Serial", 0, report_error)) return 1;
                          /* Specify tolerances */
                          for (i = 0; i < NEQ; i++) {
                            NV_Ith_S(tv,i) = ($vec-ptr:(double *aTols))[i];
                          };
 
                          flag = CVodeSetMinStep(cvode_mem, $(double minStep_));
-                         if (check_flag(&flag, "CVodeSetMinStep", 1)) return 1;
+                         if (check_flag(&flag, "CVodeSetMinStep", 1, report_error)) return 1;
                          flag = CVodeSetMaxNumSteps(cvode_mem, $(sunindextype maxNumSteps_));
-                         if (check_flag(&flag, "CVodeSetMaxNumSteps", 1)) return 1;
+                         if (check_flag(&flag, "CVodeSetMaxNumSteps", 1, report_error)) return 1;
                          flag = CVodeSetMaxErrTestFails(cvode_mem, $(int maxErrTestFails));
-                         if (check_flag(&flag, "CVodeSetMaxErrTestFails", 1)) return 1;
+                         if (check_flag(&flag, "CVodeSetMaxErrTestFails", 1, report_error)) return 1;
 
                          /* Call CVodeSVtolerances to specify the scalar relative tolerance
                           * and vector absolute tolerances */
                          flag = CVodeSVtolerances(cvode_mem, $(double rTol), tv);
-                         if (check_flag(&flag, "CVodeSVtolerances", 1)) return(1);
+                         if (check_flag(&flag, "CVodeSVtolerances", 1, report_error)) return(1);
 
                          /* Call CVodeRootInit to specify the root function event_fn_c with nr components */
                          flag = CVodeRootInit(cvode_mem, $(int nr), $fun:(int (* event_fn_c) (double t, SunVector y[], double gout[], void * params)));
 
-                         if (check_flag(&flag, "CVodeRootInit", 1)) return(1);
+                         if (check_flag(&flag, "CVodeRootInit", 1, report_error)) return(1);
 
                          /* Initialize dense matrix data structure and solver */
                          A = SUNDenseMatrix(NEQ, NEQ);
-                         if (check_flag((void *)A, "SUNDenseMatrix", 0)) return 1;
+                         if (check_flag((void *)A, "SUNDenseMatrix", 0, report_error)) return 1;
                          LS = SUNDenseLinearSolver(y, A);
-                         if (check_flag((void *)LS, "SUNDenseLinearSolver", 0)) return 1;
+                         if (check_flag((void *)LS, "SUNDenseLinearSolver", 0, report_error)) return 1;
 
                          /* Attach matrix and linear solver */
                          flag = CVDlsSetLinearSolver(cvode_mem, LS, A);
-                         if (check_flag(&flag, "CVDlsSetLinearSolver", 1)) return 1;
+                         if (check_flag(&flag, "CVDlsSetLinearSolver", 1, report_error)) return 1;
 
                          /* Set the initial step size if there is one */
                          if ($(int isInitStepSize)) {
                            /* FIXME: We could check if the initial step size is 0 */
                            /* or even NaN and then throw an error                 */
                            flag = CVodeSetInitStep(cvode_mem, $(double ss));
-                           if (check_flag(&flag, "CVodeSetInitStep", 1)) return 1;
+                           if (check_flag(&flag, "CVodeSetInitStep", 1, report_error)) return 1;
                          }
 
                          /* Set the Jacobian if there is one */
                          if ($(int isJac)) {
                            flag = CVDlsSetJacFn(cvode_mem, $fun:(int (* jacIO) (double t, SunVector y[], SunVector fy[], SunMatrix Jac[], void * params, SunVector tmp1[], SunVector tmp2[], SunVector tmp3[])));
-                           if (check_flag(&flag, "CVDlsSetJacFn", 1)) return 1;
+                           if (check_flag(&flag, "CVDlsSetJacFn", 1, report_error)) return 1;
                          }
 
                          /* Store initial conditions */
@@ -496,7 +515,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          while (1) {
                            flag = CVode(cvode_mem, ($vec-ptr:(double *ts))[input_ind], y, &t, CV_NORMAL); /* call integrator */
-                           if (check_flag(&flag, "CVode solver failure, stopping integration", 1)) {
+                           if (check_flag(&flag, "CVode", 1, report_error)) {
                              N_Vector ele = N_VNew_Serial(NEQ);
                              N_Vector weights = N_VNew_Serial(NEQ);
                              flag = CVodeGetEstLocalErrors(cvode_mem, ele);
@@ -539,7 +558,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                              int good_event = 0;
                              int stop_solver = 0;
                              flag = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *gResMut)));
-                             if (check_flag(&flag, "CVodeGetRootInfo", 1)) return 1;
+                             if (check_flag(&flag, "CVodeGetRootInfo", 1, report_error)) return 1;
                              for (i = 0; i < $(int nr); i++) {
                                int ev = ($vec-ptr:(int *gResMut))[i];
                                int req_dir = ($vec-ptr:(const int *requested_event_directions))[i];
@@ -575,7 +594,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                                }
 
                                flag = CVodeReInit(cvode_mem, t, y);
-                               if (check_flag(&flag, "CVodeReInit", 1)) return(1);
+                               if (check_flag(&flag, "CVodeReInit", 1, report_error)) return(1);
                              } else {
                                /* Since this is not a wanted event, it shouldn't get a row */
                                output_ind--;
@@ -593,40 +612,40 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          /* Get some final statistics on how the solve progressed */
                          flag = CVodeGetNumSteps(cvode_mem, &nst);
-                         check_flag(&flag, "CVodeGetNumSteps", 1);
+                         check_flag(&flag, "CVodeGetNumSteps", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[0] = nst;
 
                          /* FIXME */
                          ($vec-ptr:(sunindextype *diagMut))[1] = 0;
 
                          flag = CVodeGetNumRhsEvals(cvode_mem, &nfe);
-                         check_flag(&flag, "CVodeGetNumRhsEvals", 1);
+                         check_flag(&flag, "CVodeGetNumRhsEvals", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[2] = nfe;
                          /* FIXME */
                          ($vec-ptr:(sunindextype *diagMut))[3] = 0;
 
                          flag = CVodeGetNumLinSolvSetups(cvode_mem, &nsetups);
-                         check_flag(&flag, "CVodeGetNumLinSolvSetups", 1);
+                         check_flag(&flag, "CVodeGetNumLinSolvSetups", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[4] = nsetups;
 
                          flag = CVodeGetNumErrTestFails(cvode_mem, &netf);
-                         check_flag(&flag, "CVodeGetNumErrTestFails", 1);
+                         check_flag(&flag, "CVodeGetNumErrTestFails", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[5] = netf;
 
                          flag = CVodeGetNumNonlinSolvIters(cvode_mem, &nni);
-                         check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1);
+                         check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[6] = nni;
 
                          flag = CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
-                         check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
+                         check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[7] = ncfn;
 
                          flag = CVDlsGetNumJacEvals(cvode_mem, &nje);
-                         check_flag(&flag, "CVDlsGetNumJacEvals", 1);
+                         check_flag(&flag, "CVDlsGetNumJacEvals", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[8] = ncfn;
 
                          flag = CVDlsGetNumRhsEvals(cvode_mem, &nfeLS);
-                         check_flag(&flag, "CVDlsGetNumRhsEvals", 1);
+                         check_flag(&flag, "CVDlsGetNumRhsEvals", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[9] = ncfn;
 
                          /* Clean up and return */
@@ -705,8 +724,9 @@ data SolverResult
                                                    -- results and diagnostics.
     deriving Show
 
-odeSolveRootVWith' ::
-  ODEOpts ODEMethod
+odeSolveRootVWith'
+  :: (MonadIO m, Katip m)
+  => ODEOpts ODEMethod
   -> OdeRhs
       -- ^ The RHS of the system \(\dot{y} = f(t,y)\)
   -> Maybe (Double -> Vector Double -> Matrix Double)
@@ -715,7 +735,7 @@ odeSolveRootVWith' ::
   -> [EventSpec]                          -- ^ Event specifications
   -> Int                                  -- ^ Maximum number of events
   -> V.Vector Double                      -- ^ Desired solution times
-  -> IO SolverResult
+  -> m SolverResult
 odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
   solveOdeC (fromIntegral $ maxFail opts)
                  (fromIntegral $ maxNumSteps opts) (coerce $ minStep opts)
@@ -751,7 +771,8 @@ odeSolveRootVWith' opts rhs mb_jacobian y0 event_specs nRootEvs tt =
     update_state n_event = coerce $ eventUpdate (event_vec VB.! n_event)
 
 odeSolveWithEvents
-  :: ODEOpts ODEMethod
+  :: (MonadIO m, Katip m)
+  => ODEOpts ODEMethod
   -> [EventSpec]
     -- ^ Event specifications
   -> Int
@@ -764,7 +785,7 @@ odeSolveWithEvents
     -- ^ Initial conditions
   -> V.Vector Double
     -- ^ Desired solution times
-  -> IO (Either ErrorDiagnostics SundialsSolution)
+  -> m (Either ErrorDiagnostics SundialsSolution)
     -- ^ Either an error code or a solution
 odeSolveWithEvents opts event_specs max_events rhs mb_jacobian initial sol_times = do
   result :: SolverResult

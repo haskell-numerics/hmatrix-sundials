@@ -1,6 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall #-}
 
 import qualified Numeric.Sundials.ARKode.ODE as ARK
@@ -19,6 +20,10 @@ import           Data.Coerce
 import           Foreign.C.Types
 
 import           Test.Hspec
+
+import Control.Monad.IO.Class
+import System.IO
+import Katip
 
 
 lorenz :: Double -> [Double] -> [Double]
@@ -73,7 +78,7 @@ brussJac _t x = tr $
     w = y !! 2
     eps = 5.0e-6
 
-brusselatorWithJacobian :: Vector Double -> Bool -> IO  CV.SolverResult
+brusselatorWithJacobian :: (MonadIO m, Katip m) => Vector Double -> Bool -> m CV.SolverResult
 brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
                       (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       (if usejac then Just brussJac else Nothing)
@@ -89,7 +94,7 @@ brusselatorWithJacobian ts usejac = CV.odeSolveRootVWith' opts
                    , initStep = Nothing
                    }
 
-brussRoot :: IO CV.SolverResult
+brussRoot :: (MonadIO m, Katip m) => m CV.SolverResult
 brussRoot = CV.odeSolveRootVWith' opts
                       (OdeRhsHaskell . coerce $ \t v -> vector $ brusselator t (toList v))
                       Nothing
@@ -120,7 +125,7 @@ brussRootFn _ v = case xs of
   where
     xs = toList v
 
-exponential :: IO CV.SolverResult
+exponential :: (MonadIO m, Katip m) => m CV.SolverResult
 exponential = CV.odeSolveRootVWith' opts
                       (OdeRhsHaskell . coerce $ \(t :: Double) y -> vector [y ! 0])
                       Nothing
@@ -145,7 +150,7 @@ exponential = CV.odeSolveRootVWith' opts
 
 -- A sine wave that only changes direction once it reaches ±0.9.
 -- Illustrates event-specific reset function
-boundedSine :: IO CV.SolverResult
+boundedSine :: (MonadIO m, Katip m) => m CV.SolverResult
 boundedSine = CV.odeSolveRootVWith'
   opts
   (OdeRhsHaskell . coerce $ \(_t :: Double) y -> vector [y ! 1, - y ! 0]) -- ODE RHS
@@ -229,7 +234,7 @@ robertsJac _t (toList -> [y1, y2, y3]) = (3 >< 3)
 ts :: [Double]
 ts = take 12 $ map (* 10.0) (0.04 : ts)
 
-solve :: IO CV.SolverResult
+solve :: (MonadIO m, Katip m) => m CV.SolverResult
 solve = CV.odeSolveRootVWith' opts
                       roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
@@ -255,7 +260,7 @@ solve = CV.odeSolveRootVWith' opts
                      }
       ]
 
-solve2 :: IO CV.SolverResult
+solve2 :: (MonadIO m, Katip m) => m CV.SolverResult
 solve2 = CV.odeSolveRootVWith' opts
                       roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
@@ -282,7 +287,7 @@ solve2 = CV.odeSolveRootVWith' opts
       ]
     upd _ _ = vector [1.0, 0.0, 0.0]
 
-solve1 :: IO CV.SolverResult
+solve1 :: (MonadIO m, Katip m) => m CV.SolverResult
 solve1 = CV.odeSolveRootVWith' opts
                       roberts Nothing (vector [1.0, 0.0, 0.0])
                       events 100
@@ -303,7 +308,7 @@ solve1 = CV.odeSolveRootVWith' opts
                      }
       ]
 
-robertsonWithJacobian :: Vector Double -> Bool -> IO CV.SolverResult
+robertsonWithJacobian :: (MonadIO m, Katip m) => Vector Double -> Bool -> m CV.SolverResult
 robertsonWithJacobian ts usejac = CV.odeSolveRootVWith' opts
                       roberts (if usejac then Just robertsJac else Nothing) (vector [1.0, 0.0, 0.0])
                       [] 0
@@ -342,29 +347,34 @@ kSaxis xs = P.r2Axis &~ do
 
 main :: IO ()
 main = do
-  let res1 = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
-  renderRasterific "diagrams/brusselator.png"
+  handleScribe <- mkHandleScribe ColorIfTerminal stderr (permitItem InfoS) V2
+  log_env <- registerScribe "stderr" handleScribe defaultScribeSettings =<< initLogEnv "test" "devel"
+
+  runKatipT log_env $ do
+
+  res1 <- ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
+  liftIO $ renderRasterific "diagrams/brusselator.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1))
 
-  let res1a = ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
-  renderRasterific "diagrams/brusselatorA.png"
+  res1a <- ARK.odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
+  liftIO $ renderRasterific "diagrams/brusselatorA.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1a))
 
-  let res2 = ARK.odeSolve stiffish [0.0] (fromList [0.0, 0.1 .. 10.0])
-  renderRasterific "diagrams/stiffish.png"
+  res2 <- ARK.odeSolve stiffish [0.0] (fromList [0.0, 0.1 .. 10.0])
+  liftIO $ renderRasterific "diagrams/stiffish.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip [0.0, 0.1 .. 10.0] (concat $ toLists res2))
 
-  let res2a = ARK.odeSolveV (ARK.SDIRK_5_3_4') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
+  res2a <- ARK.odeSolveV (ARK.SDIRK_5_3_4') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
 
-  let res2b = ARK.odeSolveV (ARK.TRBDF2_3_3_2') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
+  res2b <- ARK.odeSolveV (ARK.TRBDF2_3_3_2') Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
 
   let maxDiffA = maximum $ map abs $
                  zipWith (-) ((toLists $ tr res2a)!!0) ((toLists $ tr res2b)!!0)
 
-  let res2c = CV.odeSolveV (CV.BDF) Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
+  res2c <- CV.odeSolveV (CV.BDF) Nothing 1e-6 1e-10 stiffishV (fromList [0.0]) (fromList [0.0, 0.1 .. 10.0])
 
   let maxDiffB = maximum $ map abs $
                  zipWith (-) ((toLists $ tr res2a)!!0) ((toLists $ tr res2c)!!0)
@@ -372,41 +382,41 @@ main = do
   let maxDiffC = maximum $ map abs $
                  zipWith (-) ((toLists $ tr res2b)!!0) ((toLists $ tr res2c)!!0)
 
-  let res3 = ARK.odeSolve lorenz [-5.0, -5.0, 1.0] (fromList [0.0, 0.01 .. 20.0])
+  res3 <- ARK.odeSolve lorenz [-5.0, -5.0, 1.0] (fromList [0.0, 0.01 .. 20.0])
 
-  renderRasterific "diagrams/lorenz.png"
+  liftIO $ renderRasterific "diagrams/lorenz.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!0) ((toLists $ tr res3)!!1))
 
-  renderRasterific "diagrams/lorenz1.png"
+  liftIO $ renderRasterific "diagrams/lorenz1.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!0) ((toLists $ tr res3)!!2))
 
-  renderRasterific "diagrams/lorenz2.png"
+  liftIO $ renderRasterific "diagrams/lorenz2.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip ((toLists $ tr res3)!!1) ((toLists $ tr res3)!!2))
 
-  let res4 = CV.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
+  res4 <- CV.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
 
-  renderRasterific "diagrams/predatorPrey.png"
+  liftIO $ renderRasterific "diagrams/predatorPrey.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!0) ((toLists $ tr res4)!!1))
 
-  renderRasterific "diagrams/predatorPrey1.png"
+  liftIO $ renderRasterific "diagrams/predatorPrey1.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!0) ((toLists $ tr res4)!!2))
 
-  renderRasterific "diagrams/predatorPrey2.png"
+  liftIO $ renderRasterific "diagrams/predatorPrey2.png"
                    (D.dims2D 500.0 500.0)
                    (renderAxis $ kSaxis $ zip ((toLists $ tr res4)!!1) ((toLists $ tr res4)!!2))
 
-  let res4a = ARK.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
+  res4a <- ARK.odeSolve predatorPrey [0.5, 1.0, 2.0] (fromList [0.0, 0.01 .. 10.0])
 
   let maxDiffPpA = maximum $ map abs $
                    zipWith (-) ((toLists $ tr res4)!!0) ((toLists $ tr res4a)!!0)
 
   let cond5 =
-        solve >>= \case
+        runKatipT log_env solve >>= \case
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 2
             (abs (eventTime (events!!0) - 0.2640208751331032) / 0.2640208751331032 < 1.0e-8) `shouldBe` True
@@ -415,7 +425,7 @@ main = do
             error $ "Root finding error!\n" ++ show e
 
   let cond6 =
-        solve1 >>= \case
+        runKatipT log_env solve1 >>= \case
           CV.SolverSuccess events _ _ -> do
             length events `shouldBe` 1
             (abs (eventTime (events!!0) - 1.0) / 1.0 < 1.0e-10) `shouldBe` True
@@ -423,24 +433,24 @@ main = do
             error "Root finding error!"
 
   let cond7 =
-        solve2 >>= \case
+        runKatipT log_env solve2 >>= \case
           CV.SolverSuccess events _ _ -> length events `shouldBe` 100
           CV.SolverError _ -> error "solver failed"
             True
 
   brussRoot >>= \case
     CV.SolverSuccess events m _diagn -> do
-      renderRasterific
+      liftIO $ renderRasterific
         "diagrams/brussRoot.png"
         (D.dims2D 500.0 500.0)
         (renderAxis $ lSaxis $ toLists $ tr m)
     CV.SolverError e ->
-      expectationFailure $ show $ errorCode e
+      liftIO $ expectationFailure $ show $ errorCode e
 
   let boundedSineSpec = do
-        boundedSine >>= \case
+        runKatipT log_env boundedSine >>= \case
           CV.SolverSuccess events m _ -> do
-            renderRasterific
+            liftIO $ renderRasterific
               "diagrams/boundedSine.png"
               (D.dims2D 500.0 500.0)
               (renderAxis $ lSaxis2 $ toLists $ tr m)
@@ -452,7 +462,7 @@ main = do
           CV.SolverError {} ->
             expectationFailure "Solver error"
   let exponentialSpec = do
-        exponential >>= \case
+        runKatipT log_env exponential >>= \case
           CV.SolverSuccess events _m _diagn -> do
             length events `shouldBe` 1
             (abs (eventTime (events!!0) - log 1.1) < 1e-4) `shouldBe` True
@@ -463,17 +473,17 @@ main = do
 
       robertsonJac = do
         let ts = vector [0, 1 .. 10]
-        CV.SolverSuccess _ m1 _ <- robertsonWithJacobian ts True
-        CV.SolverSuccess _ m2 _ <- robertsonWithJacobian ts False
+        CV.SolverSuccess _ m1 _ <- runKatipT log_env $ robertsonWithJacobian ts True
+        CV.SolverSuccess _ m2 _ <- runKatipT log_env $ robertsonWithJacobian ts False
         norm_2 (m1-m2) `shouldSatisfy` (< 1e-4)
 
       brusselatorJac = do
         let ts = [0.0, 0.1 .. 10.0]
-        CV.SolverSuccess _ m1 _ <- brusselatorWithJacobian (vector ts) True
-        CV.SolverSuccess _ m2 _ <- brusselatorWithJacobian (vector ts) False
+        CV.SolverSuccess _ m1 _ <- runKatipT log_env $ brusselatorWithJacobian (vector ts) True
+        CV.SolverSuccess _ m2 _ <- runKatipT log_env $ brusselatorWithJacobian (vector ts) False
         norm_2 (m1-m2) `shouldSatisfy` (< 1e-3)
 
-  hspec $ do
+  liftIO $ hspec $ do
     describe "Compare results" $ do
       it "Robertson should stop early" cond7
       it "Robertson time only" $ cond6
@@ -486,9 +496,9 @@ main = do
       it "for CV and ARK for the Predator Prey model" $ maxDiffPpA < 1.0e-3
     describe "Handling empty systems" $
       forM_ [("CVOde",CV.odeSolve),("ARKOde",ARK.odeSolve)] $ \(name, solveFn) ->
-        it name $
-          solveFn (\_ _ -> []) [] (V.enumFromTo 0 10) `shouldSatisfy` \sol ->
-            L.size sol == (11,0)
+        it name $ do
+          r <- runKatipT log_env $ solveFn (\_ _ -> []) [] (V.enumFromTo 0 10)
+          r `shouldSatisfy` \sol -> L.size sol == (11,0)
     describe "Events" $ do
       it "Bounded sine events" $ boundedSineSpec
       it "Exponential events" $ exponentialSpec
@@ -528,7 +538,7 @@ main = do
             , ("<",  (<))
             ]
         forM_ ops $ \(op_name, op) -> it ("Event condition expressed as " ++ op_name) $ do
-          Right soln <- solve op
+          Right soln <- runKatipT log_env $ solve op
           let
             evs = eventInfo soln
             [ev] = evs
@@ -555,10 +565,10 @@ main = do
               (V.singleton 0) -- initial condition
               (V.fromList [0, 10]) -- solution times
         -- the event will be triggered 10 times on [0,10]
-        Right soln1 <- solve 10
+        Right soln1 <- runKatipT log_env $ solve 10
         length (eventInfo soln1) `shouldBe` 10
         odeMaxEventsReached (diagnostics soln1) `shouldBe` True
-        Right soln2 <- solve 11
+        Right soln2 <- runKatipT log_env $ solve 11
         length (eventInfo soln1) `shouldBe` 10
         odeMaxEventsReached (diagnostics soln2) `shouldBe` False
       it "Stops the solver when requested" $ do
@@ -576,7 +586,7 @@ main = do
               Nothing
               (V.singleton 0) -- initial condition
               (V.fromList [0, 10]) -- solution times
-        Right soln1 <- solve 10
+        Right soln1 <- runKatipT log_env $ solve 10
         length (eventInfo soln1) `shouldBe` 1
         odeMaxEventsReached (diagnostics soln1) `shouldBe` False
         let ev = head $ eventInfo soln1

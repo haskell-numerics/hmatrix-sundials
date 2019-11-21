@@ -19,6 +19,8 @@ module Numeric.Sundials.Types
   , sunContentLengthOffset
   , sunContentDataOffset
   , sunCtx
+  , SundialsErrorContext(..)
+  , logWithKatip
   )
   where
 
@@ -38,6 +40,14 @@ import           Numeric.Sundials.Arkode (SunVector(..), SunMatrix(..),
                                           SunIndexType, SunRealType,
                                           sunContentLengthOffset,
                                           sunContentDataOffset)
+
+import qualified Data.Text as T
+import Data.Aeson
+import Katip
+import Foreign.C.String
+import qualified Data.Text.Encoding as T
+import qualified Data.ByteString as BS
+import Control.Monad.Reader
 
 -- | The type of the C ODE RHS function.
 type OdeRhsCType = CDouble -> Ptr SunVector -> Ptr SunVector -> Ptr UserData -> IO CInt
@@ -167,3 +177,49 @@ sunTypesTable = Map.fromList
 -- | Allows to map between Haskell and C types
 sunCtx :: Context
 sunCtx = mempty {ctxTypesTable = sunTypesTable}
+
+-- | The Katip payload for logging Sundials errors
+data SundialsErrorContext = SundialsErrorContext
+  { sundialsErrorCode :: !Int
+  , sundialsErrorModule :: !T.Text
+  , sundialsErrorFunction :: !T.Text
+  } deriving Generic
+instance ToJSON SundialsErrorContext
+instance ToObject SundialsErrorContext
+instance LogItem SundialsErrorContext where
+  payloadKeys _ _ = AllKeys
+
+logWithKatip
+  :: Katip m
+  => m
+    (  CInt    -- error code
+    -> CString -- module name
+    -> CString -- function name
+    -> CString -- the message
+    -> Ptr ()  -- user data (ignored)
+    -> IO ()
+    )
+logWithKatip = do
+  log_env <- getLogEnv
+  return $
+    \err_code c_mod_name c_func_name c_msg _userdata -> do
+    let
+      toText :: CString -> IO T.Text
+      toText = fmap T.decodeUtf8 . BS.packCString
+    mod_name <- toText c_mod_name
+    func_name <- toText c_func_name
+    msg <- toText c_msg
+    let
+      severity :: Severity
+      severity =
+        if err_code <= 0
+          then ErrorS
+          else WarningS
+      errCtx :: SundialsErrorContext
+      errCtx = SundialsErrorContext
+        { sundialsErrorCode = fromIntegral err_code
+        , sundialsErrorModule = mod_name
+        , sundialsErrorFunction = func_name
+        }
+    flip runReaderT log_env . unKatipT $ do
+      logF errCtx "sundials" severity (logStr msg)
