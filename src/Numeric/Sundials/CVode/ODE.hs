@@ -8,62 +8,9 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
------------------------------------------------------------------------------
--- |
--- Module      :  Numeric.Sundials.CVode.ODE
--- Copyright   :  Dominic Steinitz 2018,
---                Novadiscovery 2018
--- License     :  BSD
--- Maintainer  :  Dominic Steinitz
--- Stability   :  provisional
---
--- Solution of ordinary differential equation (ODE) initial value problems.
+-- | Solution of ordinary differential equation (ODE) initial value problems.
 --
 -- <https://computation.llnl.gov/projects/sundials/sundials-software>
---
--- A simple example:
---
--- <<diagrams/brusselator.png#diagram=brusselator&height=400&width=500>>
---
--- @
--- import           Numeric.Sundials.CVode.ODE
--- import           Numeric.LinearAlgebra
---
--- import           Plots as P
--- import qualified Diagrams.Prelude as D
--- import           Diagrams.Backend.Rasterific
---
--- brusselator :: Double -> [Double] -> [Double]
--- brusselator _t x = [ a - (w + 1) * u + v * u * u
---                    , w * u - v * u * u
---                    , (b - w) / eps - w * u
---                    ]
---   where
---     a = 1.0
---     b = 3.5
---     eps = 5.0e-6
---     u = x !! 0
---     v = x !! 1
---     w = x !! 2
---
--- lSaxis :: [[Double]] -> P.Axis B D.V2 Double
--- lSaxis xs = P.r2Axis &~ do
---   let ts = xs!!0
---       us = xs!!1
---       vs = xs!!2
---       ws = xs!!3
---   P.linePlot' $ zip ts us
---   P.linePlot' $ zip ts vs
---   P.linePlot' $ zip ts ws
---
--- main = do
---   let res1 = odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
---   renderRasterific "diagrams/brusselator.png"
---                    (D.dims2D 500.0 500.0)
---                    (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1))
--- @
---
------------------------------------------------------------------------------
 module Numeric.Sundials.CVode.ODE ( odeSolve
                                    , odeSolveV
                                    , odeSolveVWith
@@ -445,7 +392,8 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                            NV_Ith_S(y,i) = ($vec-ptr:(double *f0))[i];
                          };
 
-                         cvode_mem = CVodeCreate($(int method), CV_NEWTON);
+                         // NB: Uses the Newton solver by default
+                         cvode_mem = CVodeCreate($(int method));
                          if (check_flag((void *)cvode_mem, "CVodeCreate", 0, report_error)) return(1);
 
                          flag = CVodeSetErrHandlerFn(cvode_mem, report_error, NULL);

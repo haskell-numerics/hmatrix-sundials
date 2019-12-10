@@ -12,156 +12,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
------------------------------------------------------------------------------
 -- |
--- Module      :  Numeric.Sundials.ARKode.ODE
--- Copyright   :  Dominic Steinitz 2018,
---                Novadiscovery 2018
--- License     :  BSD
--- Maintainer  :  Dominic Steinitz
--- Stability   :  provisional
---
 -- Solution of ordinary differential equation (ODE) initial value problems.
 -- See <https://computation.llnl.gov/projects/sundials/sundials-software> for more detail.
---
--- A simple example:
---
--- <<diagrams/brusselator.png#diagram=brusselator&height=400&width=500>>
---
--- @
--- import           Numeric.Sundials.ARKode.ODE
--- import           Numeric.LinearAlgebra
---
--- import           Plots as P
--- import qualified Diagrams.Prelude as D
--- import           Diagrams.Backend.Rasterific
---
--- brusselator :: Double -> [Double] -> [Double]
--- brusselator _t x = [ a - (w + 1) * u + v * u * u
---                    , w * u - v * u * u
---                    , (b - w) / eps - w * u
---                    ]
---   where
---     a = 1.0
---     b = 3.5
---     eps = 5.0e-6
---     u = x !! 0
---     v = x !! 1
---     w = x !! 2
---
--- lSaxis :: [[Double]] -> P.Axis B D.V2 Double
--- lSaxis xs = P.r2Axis &~ do
---   let ts = xs!!0
---       us = xs!!1
---       vs = xs!!2
---       ws = xs!!3
---   P.linePlot' $ zip ts us
---   P.linePlot' $ zip ts vs
---   P.linePlot' $ zip ts ws
---
--- main = do
---   let res1 = odeSolve brusselator [1.2, 3.1, 3.0] (fromList [0.0, 0.1 .. 10.0])
---   renderRasterific "diagrams/brusselator.png"
---                    (D.dims2D 500.0 500.0)
---                    (renderAxis $ lSaxis $ [0.0, 0.1 .. 10.0]:(toLists $ tr res1))
--- @
---
--- With Sundials ARKode, it is possible to retrieve the Butcher tableau for the solver.
---
--- @
--- import           Numeric.Sundials.ARKode.ODE
--- import           Numeric.LinearAlgebra
---
--- import           Data.List (intercalate)
---
--- import           Text.PrettyPrint.HughesPJClass
---
---
--- butcherTableauTex :: ButcherTable -> String
--- butcherTableauTex (ButcherTable m c b b2) =
---   render $
---   vcat [ text ("\n\\begin{array}{c|" ++ (concat $ replicate n "c") ++ "}")
---        , us
---        , text "\\hline"
---        , text bs <+> text "\\\\"
---        , text b2s <+> text "\\\\"
---        , text "\\end{array}"
---        ]
---   where
---     n = rows m
---     rs = toLists m
---     ss = map (\r -> intercalate " & " $ map show r) rs
---     ts = zipWith (\i r -> show i ++ " & " ++ r) (toList c) ss
---     us = vcat $ map (\r -> text r <+> text "\\\\") ts
---     bs  = " & " ++ (intercalate " & " $ map show $ toList b)
---     b2s = " & " ++ (intercalate " & " $ map show $ toList b2)
---
--- main :: IO ()
--- main = do
---
---   let res = butcherTable (SDIRK_2_1_2 undefined)
---   putStrLn $ show res
---   putStrLn $ butcherTableauTex res
---
---   let resA = butcherTable (KVAERNO_4_2_3 undefined)
---   putStrLn $ show resA
---   putStrLn $ butcherTableauTex resA
---
---   let resB = butcherTable (SDIRK_5_3_4 undefined)
---   putStrLn $ show resB
---   putStrLn $ butcherTableauTex resB
--- @
---
---  Using the code above from the examples gives
---
--- KVAERNO_4_2_3
---
--- \[
--- \begin{array}{c|cccc}
--- 0.0 & 0.0 & 0.0 & 0.0 & 0.0 \\
--- 0.871733043 & 0.4358665215 & 0.4358665215 & 0.0 & 0.0 \\
--- 1.0 & 0.490563388419108 & 7.3570090080892e-2 & 0.4358665215 & 0.0 \\
--- 1.0 & 0.308809969973036 & 1.490563388254106 & -1.235239879727145 & 0.4358665215 \\
--- \hline
---  & 0.308809969973036 & 1.490563388254106 & -1.235239879727145 & 0.4358665215 \\
---  & 0.490563388419108 & 7.3570090080892e-2 & 0.4358665215 & 0.0 \\
--- \end{array}
--- \]
---
--- SDIRK_2_1_2
---
--- \[
--- \begin{array}{c|cc}
--- 1.0 & 1.0 & 0.0 \\
--- 0.0 & -1.0 & 1.0 \\
--- \hline
---  & 0.5 & 0.5 \\
---  & 1.0 & 0.0 \\
--- \end{array}
--- \]
---
--- SDIRK_5_3_4
---
--- \[
--- \begin{array}{c|ccccc}
--- 0.25 & 0.25 & 0.0 & 0.0 & 0.0 & 0.0 \\
--- 0.75 & 0.5 & 0.25 & 0.0 & 0.0 & 0.0 \\
--- 0.55 & 0.34 & -4.0e-2 & 0.25 & 0.0 & 0.0 \\
--- 0.5 & 0.2727941176470588 & -5.036764705882353e-2 & 2.7573529411764705e-2 & 0.25 & 0.0 \\
--- 1.0 & 1.0416666666666667 & -1.0208333333333333 & 7.8125 & -7.083333333333333 & 0.25 \\
--- \hline
---  & 1.0416666666666667 & -1.0208333333333333 & 7.8125 & -7.083333333333333 & 0.25 \\
---  & 1.2291666666666667 & -0.17708333333333334 & 7.03125 & -7.083333333333333 & 0.0 \\
--- \end{array}
--- \]
------------------------------------------------------------------------------
 module Numeric.Sundials.ARKode.ODE ( odeSolve
                                    , odeSolveV
                                    , odeSolveVWith
                                    , odeSolveVWith'
                                    , odeSolveWithEvents
-                                   , ButcherTable(..)
-                                   , butcherTable
                                    , ODEMethod(..)
                                    , StepControl(..)
                                    ) where
@@ -186,12 +44,11 @@ import           Numeric.LinearAlgebra.Devel (createVector)
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix, toList, rows,
                                                 cols, toLists, size, reshape,
-                                                subVector, subMatrix, (><))
+                                                (><))
 
 import           Numeric.Sundials.Types
 import qualified Numeric.Sundials.Arkode as T
-import           Numeric.Sundials.Arkode (arkSMax,
-                                          sDIRK_2_1_2,
+import           Numeric.Sundials.Arkode (sDIRK_2_1_2,
                                           bILLINGTON_3_3_2,
                                           tRBDF2_3_3_2,
                                           kVAERNO_4_2_3,
@@ -225,12 +82,13 @@ C.context (C.baseCtx <> C.vecCtx <> C.funCtx <> sunCtx)
 C.include "<stdlib.h>"
 C.include "<stdio.h>"
 C.include "<math.h>"
-C.include "<arkode/arkode.h>"                 -- prototypes for ARKODE fcts., consts.
-C.include "<nvector/nvector_serial.h>"        -- serial N_Vector types, fcts., macros
-C.include "<sunmatrix/sunmatrix_dense.h>"     -- access to dense SUNMatrix
-C.include "<sunlinsol/sunlinsol_dense.h>"     -- access to dense SUNLinearSolver
-C.include "<arkode/arkode_direct.h>"          -- access to ARKDls interface
-C.include "<sundials/sundials_types.h>"       -- definition of type realtype
+C.include "<arkode/arkode.h>"
+C.include "<arkode/arkode_ls.h>"
+C.include "<arkode/arkode_arkstep.h>"
+C.include "<nvector/nvector_serial.h>"
+C.include "<sunmatrix/sunmatrix_dense.h>"
+C.include "<sunlinsol/sunlinsol_dense.h>"
+C.include "<sundials/sundials_types.h>"
 C.include "<sundials/sundials_math.h>"
 C.include "Numeric/Sundials/Arkode_hsc.h"
 C.include "../../../helpers.h"
@@ -638,34 +496,30 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                            NV_Ith_S(tv,i) = ($vec-ptr:(double *aTols))[i];
                          };
 
-                         arkode_mem = ARKodeCreate(); /* Create the solver memory */
-                         if (check_flag((void *)arkode_mem, "ARKodeCreate", 0, report_error)) return 1;
-
-                         /* Call ARKodeInit to initialize the integrator memory and specify the */
+                         /* Call ARKStepCreate to initialize the integrator memory and specify the */
                          /* right-hand side function in y'=f(t,y), the inital time T0, and      */
-                         /* the initial dependent variable vector y.  Note: we treat the        */
-                         /* problem as fully implicit and set f_E to NULL and f_I to f.         */
+                         /* the initial dependent variable vector y. */
 
                          /* Here we use the C types defined in helpers.h which tie up with */
                          /* the Haskell types defined in CLangToHaskellTypes                             */
                          if ($(int method) < MIN_DIRK_NUM) {
-                           flag = ARKodeInit(arkode_mem, $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), NULL, T0, y);
-                           if (check_flag(&flag, "ARKodeInit", 1, report_error)) return 1;
+                           arkode_mem = ARKStepCreate($fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), NULL, T0, y);
+                           if (check_flag(arkode_mem, "ARKStepCreate", 0, report_error)) return 1;
                          } else {
-                           flag = ARKodeInit(arkode_mem, NULL, $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
-                           if (check_flag(&flag, "ARKodeInit", 1, report_error)) return 1;
+                           arkode_mem = ARKStepCreate(NULL, $fun:(int (* funIO) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
+                           if (check_flag(arkode_mem, "ARKStepCreate", 0, report_error)) return 1;
                          }
 
-                         flag = ARKodeSetMinStep(arkode_mem, $(double minStep_));
-                         if (check_flag(&flag, "ARKodeSetMinStep", 1, report_error)) return 1;
-                         flag = ARKodeSetMaxNumSteps(arkode_mem, $(sunindextype maxNumSteps_));
-                         if (check_flag(&flag, "ARKodeSetMaxNumSteps", 1, report_error)) return 1;
-                         flag = ARKodeSetMaxErrTestFails(arkode_mem, $(int maxErrTestFails));
-                         if (check_flag(&flag, "ARKodeSetMaxErrTestFails", 1, report_error)) return 1;
+                         flag = ARKStepSetMinStep(arkode_mem, $(double minStep_));
+                         if (check_flag(&flag, "ARKStepSetMinStep", 1, report_error)) return 1;
+                         flag = ARKStepSetMaxNumSteps(arkode_mem, $(sunindextype maxNumSteps_));
+                         if (check_flag(&flag, "ARKStepSetMaxNumSteps", 1, report_error)) return 1;
+                         flag = ARKStepSetMaxErrTestFails(arkode_mem, $(int maxErrTestFails));
+                         if (check_flag(&flag, "ARKStepSetMaxErrTestFails", 1, report_error)) return 1;
 
                          /* Set routines */
-                         flag = ARKodeSVtolerances(arkode_mem, $(double rTol), tv);
-                         if (check_flag(&flag, "ARKodeSVtolerances", 1, report_error)) return 1;
+                         flag = ARKStepSVtolerances(arkode_mem, $(double rTol), tv);
+                         if (check_flag(&flag, "ARKStepSVtolerances", 1, report_error)) return 1;
 
                          /* Initialize dense matrix data structure and solver */
                          A = SUNDenseMatrix(NEQ, NEQ);
@@ -674,21 +528,21 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          if (check_flag((void *)LS, "SUNDenseLinearSolver", 0, report_error)) return 1;
 
                          /* Attach matrix and linear solver */
-                         flag = ARKDlsSetLinearSolver(arkode_mem, LS, A);
-                         if (check_flag(&flag, "ARKDlsSetLinearSolver", 1, report_error)) return 1;
+                         flag = ARKStepSetLinearSolver(arkode_mem, LS, A);
+                         if (check_flag(&flag, "ARKStepSetLinearSolver", 1, report_error)) return 1;
 
                          /* Set the initial step size if there is one */
                          if ($(int isInitStepSize)) {
                            /* FIXME: We could check if the initial step size is 0 */
                            /* or even NaN and then throw an error                 */
-                           flag = ARKodeSetInitStep(arkode_mem, $(double ss));
-                           if (check_flag(&flag, "ARKodeSetInitStep", 1, report_error)) return 1;
+                           flag = ARKStepSetInitStep(arkode_mem, $(double ss));
+                           if (check_flag(&flag, "ARKStepSetInitStep", 1, report_error)) return 1;
                          }
 
                          /* Set the Jacobian if there is one */
                          if ($(int isJac)) {
-                           flag = ARKDlsSetJacFn(arkode_mem, $fun:(int (* jacIO) (double t, SunVector y[], SunVector fy[], SunMatrix Jac[], void * params, SunVector tmp1[], SunVector tmp2[], SunVector tmp3[])));
-                           if (check_flag(&flag, "ARKDlsSetJacFn", 1, report_error)) return 1;
+                           flag = ARKStepSetJacFn(arkode_mem, $fun:(int (* jacIO) (double t, SunVector y[], SunVector fy[], SunMatrix Jac[], void * params, SunVector tmp1[], SunVector tmp2[], SunVector tmp3[])));
+                           if (check_flag(&flag, "ARKStepSetJacFn", 1, report_error)) return 1;
                          }
 
                          /* Store initial conditions */
@@ -698,18 +552,19 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          /* Explicitly set the method */
                          if ($(int method) >= MIN_DIRK_NUM) {
-                           flag = ARKodeSetIRKTableNum(arkode_mem, $(int method));
-                           if (check_flag(&flag, "ARKodeSetIRKTableNum", 1, report_error)) return 1;
+                           /* Implicit */
+                           flag = ARKStepSetTableNum(arkode_mem, $(int method), -1);
                          } else {
-                           flag = ARKodeSetERKTableNum(arkode_mem, $(int method));
-                           if (check_flag(&flag, "ARKodeSetERKTableNum", 1, report_error)) return 1;
+                           /* Explicit */
+                           flag = ARKStepSetTableNum(arkode_mem, -1, $(int method));
                          }
+                         if (check_flag(&flag, "ARKStepSetTableNum", 1, report_error)) return 1;
 
-                         /* Main time-stepping loop: calls ARKode to perform the integration */
+                         /* Main time-stepping loop: calls ARKStepEvolve to perform the integration */
                          /* Stops when the final time has been reached                       */
                          for (i = 1; i < $(int nTs); i++) {
 
-                           flag = ARKode(arkode_mem, ($vec-ptr:(double *ts))[i], y, &t, ARK_NORMAL); /* call integrator */
+                           flag = ARKStepEvolve(arkode_mem, ($vec-ptr:(double *ts))[i], y, &t, ARK_NORMAL); /* call integrator */
                            if (check_flag(&flag, "ARKode", 1, report_error)) return 1;
 
                            /* Store the results for Haskell */
@@ -720,47 +575,47 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
 
                          /* Get some final statistics on how the solve progressed */
 
-                         flag = ARKodeGetNumSteps(arkode_mem, &nst);
-                         check_flag(&flag, "ARKodeGetNumSteps", 1, report_error);
+                         flag = ARKStepGetNumSteps(arkode_mem, &nst);
+                         check_flag(&flag, "ARKStepGetNumSteps", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[0] = nst;
 
-                         flag = ARKodeGetNumStepAttempts(arkode_mem, &nst_a);
-                         check_flag(&flag, "ARKodeGetNumStepAttempts", 1, report_error);
+                         flag = ARKStepGetNumStepAttempts(arkode_mem, &nst_a);
+                         check_flag(&flag, "ARKStepGetNumStepAttempts", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[1] = nst_a;
 
-                         flag = ARKodeGetNumRhsEvals(arkode_mem, &nfe, &nfi);
-                         check_flag(&flag, "ARKodeGetNumRhsEvals", 1, report_error);
+                         flag = ARKStepGetNumRhsEvals(arkode_mem, &nfe, &nfi);
+                         check_flag(&flag, "ARKStepGetNumRhsEvals", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[2] = nfe;
                          ($vec-ptr:(sunindextype *diagMut))[3] = nfi;
 
-                         flag = ARKodeGetNumLinSolvSetups(arkode_mem, &nsetups);
-                         check_flag(&flag, "ARKodeGetNumLinSolvSetups", 1, report_error);
+                         flag = ARKStepGetNumLinSolvSetups(arkode_mem, &nsetups);
+                         check_flag(&flag, "ARKStepGetNumLinSolvSetups", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[4] = nsetups;
 
-                         flag = ARKodeGetNumErrTestFails(arkode_mem, &netf);
-                         check_flag(&flag, "ARKodeGetNumErrTestFails", 1, report_error);
+                         flag = ARKStepGetNumErrTestFails(arkode_mem, &netf);
+                         check_flag(&flag, "ARKStepGetNumErrTestFails", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[5] = netf;
 
-                         flag = ARKodeGetNumNonlinSolvIters(arkode_mem, &nni);
-                         check_flag(&flag, "ARKodeGetNumNonlinSolvIters", 1, report_error);
+                         flag = ARKStepGetNumNonlinSolvIters(arkode_mem, &nni);
+                         check_flag(&flag, "ARKStepGetNumNonlinSolvIters", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[6] = nni;
 
-                         flag = ARKodeGetNumNonlinSolvConvFails(arkode_mem, &ncfn);
-                         check_flag(&flag, "ARKodeGetNumNonlinSolvConvFails", 1, report_error);
+                         flag = ARKStepGetNumNonlinSolvConvFails(arkode_mem, &ncfn);
+                         check_flag(&flag, "ARKStepGetNumNonlinSolvConvFails", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[7] = ncfn;
 
-                         flag = ARKDlsGetNumJacEvals(arkode_mem, &nje);
-                         check_flag(&flag, "ARKDlsGetNumJacEvals", 1, report_error);
+                         flag = ARKStepGetNumJacEvals(arkode_mem, &nje);
+                         check_flag(&flag, "ARKStepGetNumJacEvals", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[8] = ncfn;
 
-                         flag = ARKDlsGetNumRhsEvals(arkode_mem, &nfeLS);
-                         check_flag(&flag, "ARKDlsGetNumRhsEvals", 1, report_error);
+                         flag = ARKStepGetNumLinRhsEvals(arkode_mem, &nfeLS);
+                         check_flag(&flag, "ARKStepGetNumRhsEvals", 1, report_error);
                          ($vec-ptr:(sunindextype *diagMut))[9] = ncfn;
 
                          /* Clean up and return */
                          N_VDestroy(y);            /* Free y vector          */
                          N_VDestroy(tv);           /* Free tv vector         */
-                         ARKodeFree(&arkode_mem);  /* Free integrator memory */
+                         ARKStepFree(&arkode_mem);  /* Free integrator memory */
                          SUNLinSolFree(LS);        /* Free linear solver     */
                          SUNMatDestroy(A);         /* Free A matrix          */
 
@@ -784,174 +639,3 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
       return $ Right (m, d)
     else do
       return $ Left  (m, res)
-
-data ButcherTable = ButcherTable { am  :: Matrix Double
-                                 , cv  :: Vector Double
-                                 , bv  :: Vector Double
-                                 , b2v :: Vector Double
-                                 }
-  deriving Show
-
-data ButcherTable' a = ButcherTable' { am'  :: V.Vector a
-                                     , cv'  :: V.Vector a
-                                     , bv'  :: V.Vector a
-                                     , b2v' :: V.Vector a
-                                     }
-  deriving Show
-
-butcherTable :: (MonadIO m, Katip m) => ODEMethod -> m ButcherTable
-butcherTable method = do
-  r <- getBT method
-  return $ case r of
-    Left c -> error $ show c -- FIXME
-    Right (ButcherTable' v w x y, sqp) ->
-      ButcherTable { am = subMatrix (0, 0) (s, s) $ (arkSMax >< arkSMax) (V.toList v)
-                   , cv = subVector 0 s w
-                   , bv = subVector 0 s x
-                   , b2v = subVector 0 s y
-                   }
-      where
-        s = fromIntegral $ sqp V.! 0
-
-getBT
-  :: (MonadIO m, Katip m)
-  => ODEMethod
-  -> m (Either Int (ButcherTable' Double, V.Vector Int))
-getBT method = do
-  r <- getButcherTable method
-  return $ case r of
-    Left c ->
-      Left $ fromIntegral c
-    Right (ButcherTable' a b c d, sqp) ->
-      Right $ ( ButcherTable' (coerce a) (coerce b) (coerce c) (coerce d)
-              , V.map fromIntegral sqp )
-
-getButcherTable :: (MonadIO m, Katip m)
-                => ODEMethod
-                -> m (Either CInt (ButcherTable' CDouble, V.Vector CInt))
-getButcherTable method = do
-  report_error <- logWithKatip
-  liftIO $ do
-  -- ARKode seems to want an ODE in order to set and then get the
-  -- Butcher tableau so here's one to keep it happy
-  let funI :: CDouble -> V.Vector CDouble -> V.Vector CDouble
-      funI _t ys = V.fromList [ ys V.! 0 ]
-  let funE :: CDouble -> V.Vector CDouble -> V.Vector CDouble
-      funE _t ys = V.fromList [ ys V.! 0 ]
-      f0        = V.fromList [ 1.0 ]
-      ts        = V.fromList [ 0.0 ]
-      dim = V.length f0
-      nEq :: T.SunIndexType
-      nEq = fromIntegral dim
-      mN :: CInt
-      mN = fromIntegral $ getMethod method
-
-  btSQP :: V.Vector CInt <- createVector 3
-  btSQPMut <- V.thaw btSQP
-  btAs :: V.Vector CDouble <- createVector (arkSMax * arkSMax)
-  btAsMut <- V.thaw btAs
-  btCs  :: V.Vector CDouble <- createVector arkSMax
-  btBs  :: V.Vector CDouble <- createVector arkSMax
-  btB2s :: V.Vector CDouble <- createVector arkSMax
-  btCsMut  <- V.thaw btCs
-  btBsMut  <- V.thaw btBs
-  btB2sMut <- V.thaw btB2s
-  let funIOI :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIOI t y f _ptr = do
-        sv <- peek y
-        poke f $ T.SunVector { T.sunVecN = T.sunVecN sv
-                             , T.sunVecVals = funI t (T.sunVecVals sv)
-                             }
-        -- FIXME: I don't understand what this comment means
-        -- Unsafe since the function will be called many times.
-        [CU.exp| int{ 0 } |]
-  let funIOE :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr () -> IO CInt
-      funIOE t y f _ptr = do
-        sv <- peek y
-        poke f $ T.SunVector { T.sunVecN = T.sunVecN sv
-                             , T.sunVecVals = funE t (T.sunVecVals sv)
-                             }
-        -- FIXME: I don't understand what this comment means
-        -- Unsafe since the function will be called many times.
-        [CU.exp| int{ 0 } |]
-
-  res <- [C.block| int {
-                         /* general problem variables */
-
-                         int flag;                /* reusable error-checking flag      */
-                         N_Vector y = NULL;       /* empty vector for storing solution */
-                         void *arkode_mem = NULL; /* empty ARKode memory structure     */
-                         int i, j;                /* reusable loop indices             */
-
-                         /* general problem parameters */
-
-                         realtype T0 = RCONST(($vec-ptr:(double *ts))[0]); /* initial time             */
-                         sunindextype NEQ = $(sunindextype nEq);           /* number of dependent vars */
-
-                         /* Initialize data structures */
-
-                         ARKErrHandlerFn report_error = $fun:(void (*report_error)(int,const char*, const char*, char*, void*));
-
-                         y = N_VNew_Serial(NEQ); /* Create serial vector for solution */
-                         if (check_flag((void *)y, "N_VNew_Serial", 0, report_error)) return 1;
-                         /* Specify initial condition */
-                         for (i = 0; i < NEQ; i++) {
-                           NV_Ith_S(y,i) = ($vec-ptr:(double *f0))[i];
-                         };
-                         arkode_mem = ARKodeCreate(); /* Create the solver memory */
-                         if (check_flag((void *)arkode_mem, "ARKodeCreate", 0, report_error)) return 1;
-
-                         flag = ARKodeInit(arkode_mem, $fun:(int (* funIOE) (double t, SunVector y[], SunVector dydt[], void * params)), $fun:(int (* funIOI) (double t, SunVector y[], SunVector dydt[], void * params)), T0, y);
-                         if (check_flag(&flag, "ARKodeInit", 1, report_error)) return 1;
-
-                         if ($(int mN) >= MIN_DIRK_NUM) {
-                         flag = ARKodeSetIRKTableNum(arkode_mem, $(int mN));
-                         if (check_flag(&flag, "ARKodeSetIRKTableNum", 1, report_error)) return 1;
-                         } else {
-                         flag = ARKodeSetERKTableNum(arkode_mem, $(int mN));
-                         if (check_flag(&flag, "ARKodeSetERKTableNum", 1, report_error)) return 1;
-                         }
-
-                         int s, q, p;
-                         realtype *ai = (realtype *)malloc(ARK_S_MAX * ARK_S_MAX * sizeof(realtype));
-                         realtype *ae = (realtype *)malloc(ARK_S_MAX * ARK_S_MAX * sizeof(realtype));
-                         realtype *ci = (realtype *)malloc(ARK_S_MAX * sizeof(realtype));
-                         realtype *ce = (realtype *)malloc(ARK_S_MAX * sizeof(realtype));
-                         realtype *bi = (realtype *)malloc(ARK_S_MAX * sizeof(realtype));
-                         realtype *be = (realtype *)malloc(ARK_S_MAX * sizeof(realtype));
-                         realtype *b2i = (realtype *)malloc(ARK_S_MAX * sizeof(realtype));
-                         realtype *b2e = (realtype *)malloc(ARK_S_MAX * sizeof(realtype));
-                         flag = ARKodeGetCurrentButcherTables(arkode_mem, &s, &q, &p, ai, ae, ci, ce, bi, be, b2i, b2e);
-                         if (check_flag(&flag, "ARKode", 1, report_error)) return 1;
-                         $vec-ptr:(int *btSQPMut)[0] = s;
-                         $vec-ptr:(int *btSQPMut)[1] = q;
-                         $vec-ptr:(int *btSQPMut)[2] = p;
-                         for (i = 0; i < s; i++) {
-                           for (j = 0; j < s; j++) {
-                             /* FIXME: double should be realtype */
-                             ($vec-ptr:(double *btAsMut))[i * ARK_S_MAX + j] = ai[i * ARK_S_MAX + j];
-                           }
-                         }
-
-                         for (i = 0; i < s; i++) {
-                           ($vec-ptr:(double *btCsMut))[i]  = ci[i];
-                           ($vec-ptr:(double *btBsMut))[i]  = bi[i];
-                           ($vec-ptr:(double *btB2sMut))[i] = b2i[i];
-                         }
-
-                         /* Clean up and return */
-                         N_VDestroy(y);            /* Free y vector */
-                         ARKodeFree(&arkode_mem);  /* Free integrator memory */
-
-                         return flag;
-                       } |]
-  if res == 0
-    then do
-      x <- V.freeze btAsMut
-      y <- V.freeze btSQPMut
-      z <- V.freeze btCsMut
-      u <- V.freeze btBsMut
-      v <- V.freeze btB2sMut
-      return $ Right (ButcherTable' { am' = x, cv' = z, bv' = u, b2v' = v }, y)
-    else do
-      return $ Left res

@@ -1,16 +1,12 @@
 name:                hmatrix-sundials
 version:             0.20.0.0
 synopsis:            hmatrix interface to sundials
-description:         An interface to the solving suite SUNDIALS. Currently, it
-                     mimics the solving interface in hmstrix-gsl but
-                     provides more diagnostic information and the
-                     Butcher Tableaux (for Runge-Kutta methods).
-homepage:            https://github.com/idontgetoutmuch/hmatrix/tree/sundials
+description:         An interface to the solving suite SUNDIALS.
 license:             BSD3
 license-file:        LICENSE
 author:              Dominic Steinitz
-maintainer:          dominic@steinitz.org
-copyright:           Dominic Steinitz 2018, Novadiscovery 2018
+maintainer:          Roman Cheplyaka
+copyright:           Dominic Steinitz 2018, Novadiscovery 2019
 category:            Math
 build-type:          Simple
 extra-source-files:  ChangeLog.md, README.md, diagrams/*.png
@@ -24,7 +20,7 @@ library
                        vector >=0.12,
                        template-haskell >=2.12,
                        containers >=0.5,
-                       split >=0.2 && <3,
+                       split >=0.2,
                        hmatrix>=0.18,
                        deepseq,
                        mtl,
@@ -47,13 +43,13 @@ library
 test-suite hmatrix-sundials-testsuite
   type:                exitcode-stdio-1.0
   main-is:             Main.hs
-  build-depends:       base >=4.10 && <4.11,
-                       inline-c >=0.6 && <0.7,
-                       vector >=0.12 && <0.13,
-                       template-haskell >=2.12 && <2.13,
-                       containers >=0.5 && <0.6,
-                       split >=0.2 && <3,
-                       hmatrix>=0.18,
+  build-depends:       base,
+                       inline-c,
+                       vector,
+                       template-haskell,
+                       containers,
+                       split,
+                       hmatrix,
                        plots,
                        diagrams-lib,
                        diagrams-rasterific,
