@@ -471,7 +471,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          SUNLinearSolver LS = NULL; /* empty linear solver object                   */
                          void *arkode_mem = NULL;   /* empty ARKode memory structure                */
                          realtype t;
-                         sunindextype nst, nst_a, nfe, nfi, nsetups, nje, nfeLS, nni, ncfn, netf;
+                         long int nst, nst_a, nfe, nfi, nsetups, nje, nfeLS, nni, ncfn, netf;
 
                          /* general problem parameters */
 

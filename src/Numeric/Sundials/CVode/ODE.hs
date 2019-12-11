@@ -354,7 +354,7 @@ solveOdeC maxErrTestFails maxNumSteps_ minStep_ method initStepSize
                          SUNLinearSolver LS = NULL; /* empty linear solver object                   */
                          void *cvode_mem = NULL;    /* empty CVODE memory structure                 */
                          realtype t;
-                         sunindextype nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
+                         long int nst, nfe, nsetups, nje, nfeLS, nni, ncfn, netf, nge;
 
                          realtype tout;
 
