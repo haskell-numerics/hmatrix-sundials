@@ -3,44 +3,45 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE EmptyDataDecls #-}
 
-module Numeric.Sundials.Arkode ( getDataFromContents
-                               , putDataInContents
-                               , cV_ADAMS
-                               , cV_BDF
-                               , vectorToC
-                               , cV_SUCCESS
-                               , cV_ROOT_RETURN
-                               , SunIndexType
-                               , SunRealType
-                               , SunMatrix(..)
-                               , SunVector(..)
-                               , sunContentLengthOffset
-                               , sunContentDataOffset
-                               , hEUN_EULER_2_1_2
-                               , bOGACKI_SHAMPINE_4_2_3
-                               , aRK324L2SA_ERK_4_2_3
-                               , zONNEVELD_5_3_4
-                               , aRK436L2SA_ERK_6_3_4
-                               , sAYFY_ABURUB_6_3_4
-                               , cASH_KARP_6_4_5
-                               , fEHLBERG_6_4_5
-                               , dORMAND_PRINCE_7_4_5
-                               , aRK548L2SA_ERK_8_4_5
-                               , vERNER_8_5_6
-                               , fEHLBERG_13_7_8
-                               , sDIRK_2_1_2
-                               , bILLINGTON_3_3_2
-                               , tRBDF2_3_3_2
-                               , kVAERNO_4_2_3
-                               , aRK324L2SA_DIRK_4_2_3
-                               , cASH_5_2_4
-                               , cASH_5_3_4
-                               , sDIRK_5_3_4
-                               , kVAERNO_5_3_4
-                               , aRK436L2SA_DIRK_6_3_4
-                               , kVAERNO_7_4_5
-                               , aRK548L2SA_DIRK_8_4_5
-                               ) where
+module Numeric.Sundials.Foreign
+  ( getDataFromContents
+  , putDataInContents
+  , cV_ADAMS
+  , cV_BDF
+  , vectorToC
+  , cV_SUCCESS
+  , cV_ROOT_RETURN
+  , SunIndexType
+  , SunRealType
+  , SunMatrix(..)
+  , SunVector(..)
+  , sunContentLengthOffset
+  , sunContentDataOffset
+  , hEUN_EULER_2_1_2
+  , bOGACKI_SHAMPINE_4_2_3
+  , aRK324L2SA_ERK_4_2_3
+  , zONNEVELD_5_3_4
+  , aRK436L2SA_ERK_6_3_4
+  , sAYFY_ABURUB_6_3_4
+  , cASH_KARP_6_4_5
+  , fEHLBERG_6_4_5
+  , dORMAND_PRINCE_7_4_5
+  , aRK548L2SA_ERK_8_4_5
+  , vERNER_8_5_6
+  , fEHLBERG_13_7_8
+  , sDIRK_2_1_2
+  , bILLINGTON_3_3_2
+  , tRBDF2_3_3_2
+  , kVAERNO_4_2_3
+  , aRK324L2SA_DIRK_4_2_3
+  , cASH_5_2_4
+  , cASH_5_3_4
+  , sDIRK_5_3_4
+  , kVAERNO_5_3_4
+  , aRK436L2SA_DIRK_6_3_4
+  , kVAERNO_7_4_5
+  , aRK548L2SA_DIRK_8_4_5
+  ) where
 
 import           Foreign
 import           Foreign.C.Types
@@ -181,46 +182,46 @@ getLength ptr = (#peek SunContent, length) ptr
 putLength :: SunIndexType -> Ptr b -> IO ()
 putLength l ptr = (#poke SunContent, length) ptr l
 
-cV_SUCCESS :: Int
+cV_SUCCESS :: CInt
 cV_SUCCESS = #const CV_SUCCESS
-cV_ROOT_RETURN :: Int
+cV_ROOT_RETURN :: CInt
 cV_ROOT_RETURN = #const CV_ROOT_RETURN
 
-cV_ADAMS :: Int
+cV_ADAMS :: CInt
 cV_ADAMS = #const CV_ADAMS
-cV_BDF :: Int
+cV_BDF :: CInt
 cV_BDF = #const CV_BDF
 
-mIN_DIRK_NUM, mAX_DIRK_NUM :: Int
+mIN_DIRK_NUM, mAX_DIRK_NUM :: CInt
 mIN_DIRK_NUM = #const MIN_DIRK_NUM
 mAX_DIRK_NUM = #const MAX_DIRK_NUM
 
 -- FIXME: We could just use inline-c instead
 
 -- Butcher table accessors -- implicit
-sDIRK_2_1_2 :: Int
+sDIRK_2_1_2 :: CInt
 sDIRK_2_1_2 = #const SDIRK_2_1_2
-bILLINGTON_3_3_2 :: Int
+bILLINGTON_3_3_2 :: CInt
 bILLINGTON_3_3_2 = #const BILLINGTON_3_3_2
-tRBDF2_3_3_2 :: Int
+tRBDF2_3_3_2 :: CInt
 tRBDF2_3_3_2 = #const TRBDF2_3_3_2
-kVAERNO_4_2_3 :: Int
+kVAERNO_4_2_3 :: CInt
 kVAERNO_4_2_3 = #const KVAERNO_4_2_3
-aRK324L2SA_DIRK_4_2_3 :: Int
+aRK324L2SA_DIRK_4_2_3 :: CInt
 aRK324L2SA_DIRK_4_2_3 = #const ARK324L2SA_DIRK_4_2_3
-cASH_5_2_4 :: Int
+cASH_5_2_4 :: CInt
 cASH_5_2_4 = #const CASH_5_2_4
-cASH_5_3_4 :: Int
+cASH_5_3_4 :: CInt
 cASH_5_3_4 = #const CASH_5_3_4
-sDIRK_5_3_4 :: Int
+sDIRK_5_3_4 :: CInt
 sDIRK_5_3_4 = #const SDIRK_5_3_4
-kVAERNO_5_3_4 :: Int
+kVAERNO_5_3_4 :: CInt
 kVAERNO_5_3_4 = #const KVAERNO_5_3_4
-aRK436L2SA_DIRK_6_3_4 :: Int
+aRK436L2SA_DIRK_6_3_4 :: CInt
 aRK436L2SA_DIRK_6_3_4 = #const ARK436L2SA_DIRK_6_3_4
-kVAERNO_7_4_5 :: Int
+kVAERNO_7_4_5 :: CInt
 kVAERNO_7_4_5 = #const KVAERNO_7_4_5
-aRK548L2SA_DIRK_8_4_5 :: Int
+aRK548L2SA_DIRK_8_4_5 :: CInt
 aRK548L2SA_DIRK_8_4_5 = #const ARK548L2SA_DIRK_8_4_5
 
 -- #define DEFAULT_DIRK_2          SDIRK_2_1_2
@@ -229,29 +230,29 @@ aRK548L2SA_DIRK_8_4_5 = #const ARK548L2SA_DIRK_8_4_5
 -- #define DEFAULT_DIRK_5          ARK548L2SA_DIRK_8_4_5
 
 -- Butcher table accessors -- explicit
-hEUN_EULER_2_1_2 :: Int
+hEUN_EULER_2_1_2 :: CInt
 hEUN_EULER_2_1_2 = #const HEUN_EULER_2_1_2
-bOGACKI_SHAMPINE_4_2_3 :: Int
+bOGACKI_SHAMPINE_4_2_3 :: CInt
 bOGACKI_SHAMPINE_4_2_3 = #const BOGACKI_SHAMPINE_4_2_3
-aRK324L2SA_ERK_4_2_3 :: Int
+aRK324L2SA_ERK_4_2_3 :: CInt
 aRK324L2SA_ERK_4_2_3 = #const ARK324L2SA_ERK_4_2_3
-zONNEVELD_5_3_4 :: Int
+zONNEVELD_5_3_4 :: CInt
 zONNEVELD_5_3_4 = #const ZONNEVELD_5_3_4
-aRK436L2SA_ERK_6_3_4 :: Int
+aRK436L2SA_ERK_6_3_4 :: CInt
 aRK436L2SA_ERK_6_3_4 = #const ARK436L2SA_ERK_6_3_4
-sAYFY_ABURUB_6_3_4 :: Int
+sAYFY_ABURUB_6_3_4 :: CInt
 sAYFY_ABURUB_6_3_4 = #const SAYFY_ABURUB_6_3_4
-cASH_KARP_6_4_5 :: Int
+cASH_KARP_6_4_5 :: CInt
 cASH_KARP_6_4_5 = #const CASH_KARP_6_4_5
-fEHLBERG_6_4_5 :: Int
+fEHLBERG_6_4_5 :: CInt
 fEHLBERG_6_4_5 = #const FEHLBERG_6_4_5
-dORMAND_PRINCE_7_4_5 :: Int
+dORMAND_PRINCE_7_4_5 :: CInt
 dORMAND_PRINCE_7_4_5 = #const DORMAND_PRINCE_7_4_5
-aRK548L2SA_ERK_8_4_5 :: Int
+aRK548L2SA_ERK_8_4_5 :: CInt
 aRK548L2SA_ERK_8_4_5 = #const ARK548L2SA_ERK_8_4_5
-vERNER_8_5_6 :: Int
+vERNER_8_5_6 :: CInt
 vERNER_8_5_6 = #const VERNER_8_5_6
-fEHLBERG_13_7_8 :: Int
+fEHLBERG_13_7_8 :: CInt
 fEHLBERG_13_7_8 = #const FEHLBERG_13_7_8
 
 -- #define DEFAULT_ERK_2           HEUN_EULER_2_1_2
