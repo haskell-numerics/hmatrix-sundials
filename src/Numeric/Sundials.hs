@@ -4,6 +4,7 @@ module Numeric.Sundials
     -- * Types
   , ARKMethod(..)
   , CVMethod(..)
+  , Method(..)
   , module Numeric.Sundials.Types
   ) where
 

@@ -22,19 +22,14 @@ import Data.Coerce
 --                            Helpers
 ----------------------------------------------------------------------
 
-data OdeSolver = forall method . Show method => OdeSolver
+data OdeSolver = forall method . (Show method, Method method) => OdeSolver
   String -- name
   [method]
-  (forall m . Katip m
-    => ODEOpts method
-    -> OdeProblem
-    -> m (Either ErrorDiagnostics SundialsSolution)
-  )
 
 availableSolvers :: [OdeSolver]
 availableSolvers =
-  [ OdeSolver "CVode"  [BDF, ADAMS] solveCV
-  , OdeSolver "ARKode" [SDIRK_5_3_4, TRBDF2_3_3_2] solveARK
+  [ OdeSolver "CVode"  [BDF, ADAMS]
+  , OdeSolver "ARKode" [SDIRK_5_3_4, TRBDF2_3_3_2]
   ]
 
 defaultOpts :: method -> ODEOpts method
@@ -79,47 +74,47 @@ main = do
       testGroup solver_name
       [ testGroup (show method) $
           let opts = defaultOpts method in
-          [ withVsWithoutJacobian opts solver
-          , eventTests opts solver
-          , noErrorTests opts solver
+          [ withVsWithoutJacobian opts
+          , eventTests opts
+          , noErrorTests opts
           ]
       | method <- methods
       ]
-    | OdeSolver solver_name methods solver <- availableSolvers
+    | OdeSolver solver_name methods <- availableSolvers
     ] ++
     [ testGroup "Method comparison"
       -- FIXME rewrite this to be O(n) instead of O(n^2)
       -- right now, this only compares between different solvers
       [ testGroup (show method1 ++ " vs " ++ show method2) $ compareMethodsTests
-          (defaultOpts method1, solver1)
-          (defaultOpts method2, solver2)
-      | (OdeSolver _ methods1 solver1, OdeSolver _ methods2 solver2) <- allPairs availableSolvers
+          (defaultOpts method1)
+          (defaultOpts method2)
+      | (OdeSolver _ methods1, OdeSolver _ methods2) <- allPairs availableSolvers
       , method1 <- methods1
       , method2 <- methods2
       ]
     ]
 
-noErrorTests opts solver = testGroup "Absence of error"
+noErrorTests opts = testGroup "Absence of error"
   [ testCase name $ do
-      r <- runKatipT ?log_env $ solver opts prob
+      r <- runKatipT ?log_env $ solve opts prob
       case r of
         Right _ -> return ()
         Left e -> assertFailure (show e)
   | (name, prob) <- [ empty ]
   ]
 
-withVsWithoutJacobian opts solver = testGroup "With vs without jacobian"
+withVsWithoutJacobian opts = testGroup "With vs without jacobian"
   [ testCase name $ do
-      Right (solutionMatrix -> solJac)   <- runKatipT ?log_env $ solver opts prob
-      Right (solutionMatrix -> solNoJac) <- runKatipT ?log_env $ solver opts prob { odeJacobian = Nothing }
+      Right (solutionMatrix -> solJac)   <- runKatipT ?log_env $ solve opts prob
+      Right (solutionMatrix -> solNoJac) <- runKatipT ?log_env $ solve opts prob { odeJacobian = Nothing }
       checkDiscrepancy 1e-2 $ norm_2 (solJac - solNoJac)
   | (name, prob) <- [ brusselator, robertson ]
   ]
 
-compareMethodsTests (opts1, solver1) (opts2, solver2) =
+compareMethodsTests opts1 opts2 =
   [ testCase name $ do
-      Right (solutionMatrix -> sol1) <- runKatipT ?log_env $ solver1 opts1 prob
-      Right (solutionMatrix -> sol2) <- runKatipT ?log_env $ solver2 opts2 prob
+      Right (solutionMatrix -> sol1) <- runKatipT ?log_env $ solve opts1 prob
+      Right (solutionMatrix -> sol2) <- runKatipT ?log_env $ solve opts2 prob
       let diff = maximum $ map abs $
                  zipWith (-) ((toLists $ tr sol1)!!0) ((toLists $ tr sol2)!!0)
       checkDiscrepancy 1e-5 diff
@@ -127,16 +122,16 @@ compareMethodsTests (opts1, solver1) (opts2, solver2) =
   ]
 
 
-eventTests opts solver = testGroup "Events"
+eventTests opts = testGroup "Events"
   [ testCase "Exponential" $ do
-      Right (eventInfo -> events) <- runKatipT ?log_env $ solver opts exponential
+      Right (eventInfo -> events) <- runKatipT ?log_env $ solve opts exponential
       length events @?= 1
       checkDiscrepancy 1e-4 (abs (eventTime (events V.! 0) - log 1.1))
       rootDirection (events V.! 0) @?= Upwards
       eventIndex (events V.! 0) @?= 0
   , testCase "Robertson" $ do
       let upd _ _ = vector [1.0, 0.0, 0.0]
-      Right (eventInfo -> events) <- runKatipT ?log_env $ solver opts
+      Right (eventInfo -> events) <- runKatipT ?log_env $ solve opts
         (snd robertson)
           { odeEvents =
             [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
@@ -155,7 +150,7 @@ eventTests opts solver = testGroup "Events"
           }
       length events @?= 100
   , testCase "Bounded sine" $ do
-      Right (eventInfo -> events) <- runKatipT ?log_env $ solver opts boundedSine
+      Right (eventInfo -> events) <- runKatipT ?log_env $ solve opts boundedSine
       length events @?= 3
       V.map rootDirection events @?= [Upwards, Downwards, Upwards]
       V.map eventIndex events @?= [0, 1, 0]
