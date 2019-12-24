@@ -90,7 +90,6 @@ data ODEOpts method = ODEOpts {
   , minStep     :: Double
   , maxFail     :: Int32
   , odeMethod   :: method
-  , stepControl :: Tolerances
   , initStep    :: Maybe Double
     -- ^ initial step size - by default, CVode
     -- estimates the initial step size to be the

@@ -38,7 +38,6 @@ defaultOpts method = ODEOpts
   , minStep     = 1.0e-14
   , maxFail     = 10
   , odeMethod   = method
-  , stepControl = defaultTolerances
   , initStep    = Nothing
   }
 
