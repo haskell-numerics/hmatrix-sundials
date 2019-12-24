@@ -1,9 +1,11 @@
 -- | Common infrastructure for CVode/ARKode
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 module Numeric.Sundials.Common where
 
 import Foreign.C.Types
 import Foreign.Ptr
 import Foreign.Storable (peek, poke)
+import Foreign.C.String
 import Numeric.Sundials.Types
 import qualified Numeric.Sundials.Foreign as T
 import qualified Data.Vector as V
@@ -16,7 +18,12 @@ import Control.Monad.IO.Class
 import Control.Monad.Cont
 import Control.Exception
 import Katip
-import Language.Haskell.TH
+import Data.Aeson
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.ByteString as BS
+import Control.Monad.Reader
+import GHC.Generics (Generic)
 
 -- | A collection of variables that we allocate on the Haskell side and
 -- pass into the C code to be filled.
@@ -304,3 +311,55 @@ solveCommon solve_c opts problem@(OdeProblem{..})
       solve_c consts vars report_error
     frozenVars <- freezeCVars vars
     assembleSolverResult problem ret frozenVars
+
+----------------------------------------------------------------------
+--                           Logging
+----------------------------------------------------------------------
+
+-- | The Katip payload for logging Sundials errors
+data SundialsErrorContext = SundialsErrorContext
+  { sundialsErrorCode :: !Int
+  , sundialsErrorModule :: !T.Text
+  , sundialsErrorFunction :: !T.Text
+  } deriving Generic
+instance ToJSON SundialsErrorContext
+instance ToObject SundialsErrorContext
+instance LogItem SundialsErrorContext where
+  payloadKeys _ _ = AllKeys
+
+type ReportErrorFn =
+  (  CInt    -- error code
+  -> CString -- module name
+  -> CString -- function name
+  -> CString -- the message
+  -> Ptr ()  -- user data (ignored)
+  -> IO ()
+  )
+
+logWithKatip
+  :: Katip m
+  => m ReportErrorFn
+logWithKatip = do
+  log_env <- getLogEnv
+  return $
+    \err_code c_mod_name c_func_name c_msg _userdata -> do
+    let
+      toText :: CString -> IO T.Text
+      toText = fmap T.decodeUtf8 . BS.packCString
+    mod_name <- toText c_mod_name
+    func_name <- toText c_func_name
+    msg <- toText c_msg
+    let
+      severity :: Severity
+      severity =
+        if err_code <= 0
+          then ErrorS
+          else WarningS
+      errCtx :: SundialsErrorContext
+      errCtx = SundialsErrorContext
+        { sundialsErrorCode = fromIntegral err_code
+        , sundialsErrorModule = mod_name
+        , sundialsErrorFunction = func_name
+        }
+    flip runReaderT log_env . unKatipT $ do
+      logF errCtx "sundials" severity (logStr msg)

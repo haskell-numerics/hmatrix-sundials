@@ -46,19 +46,8 @@ module Numeric.Sundials.Foreign
 import           Foreign
 import           Foreign.C.Types
 
-import           Language.C.Types as CT
-
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VM
-
-import qualified Language.Haskell.TH as TH
-import qualified Data.Map as Map
-import           Language.C.Inline.Context
-
-import qualified Data.Vector.Storable as V
-
-import Katip
-
 
 #include <stdio.h>
 #include <sundials/sundials_nvector.h>
@@ -71,12 +60,12 @@ import Katip
 
 
 data SunVector = SunVector { sunVecN    :: SunIndexType
-                           , sunVecVals :: V.Vector CDouble
+                           , sunVecVals :: VS.Vector CDouble
                            }
 
 data SunMatrix = SunMatrix { rows :: CInt
                            , cols :: CInt
-                           , vals :: V.Vector CDouble
+                           , vals :: VS.Vector CDouble
                            }
 
 type SunIndexType = #type sunindextype
@@ -191,12 +180,6 @@ cV_ADAMS :: CInt
 cV_ADAMS = #const CV_ADAMS
 cV_BDF :: CInt
 cV_BDF = #const CV_BDF
-
-mIN_DIRK_NUM, mAX_DIRK_NUM :: CInt
-mIN_DIRK_NUM = #const MIN_DIRK_NUM
-mAX_DIRK_NUM = #const MAX_DIRK_NUM
-
--- FIXME: We could just use inline-c instead
 
 -- Butcher table accessors -- implicit
 sDIRK_2_1_2 :: CInt

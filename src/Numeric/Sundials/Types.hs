@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass, DeriveGeneric, TemplateHaskell, OverloadedStrings #-}
 module Numeric.Sundials.Types
   ( OdeProblem(..)
   , Tolerances(..)
@@ -20,9 +19,6 @@ module Numeric.Sundials.Types
   , sunContentLengthOffset
   , sunContentDataOffset
   , sunCtx
-  , SundialsErrorContext(..)
-  , ReportErrorFn
-  , logWithKatip
   )
   where
 
@@ -34,7 +30,6 @@ import qualified Language.Haskell.TH as TH
 
 import           Numeric.LinearAlgebra.HMatrix (Vector, Matrix)
 import           Control.DeepSeq (NFData)
-import           GHC.Generics (Generic)
 import           Foreign.C.Types
 import           Foreign.Ptr
 import           Language.C.Types as CT
@@ -43,14 +38,7 @@ import           Numeric.Sundials.Foreign (SunVector(..), SunMatrix(..),
                                           SunIndexType, SunRealType,
                                           sunContentLengthOffset,
                                           sunContentDataOffset)
-
-import qualified Data.Text as T
-import Data.Aeson
-import Katip
-import Foreign.C.String
-import qualified Data.Text.Encoding as T
-import qualified Data.ByteString as BS
-import Control.Monad.Reader
+import GHC.Generics (Generic)
 
 data OdeProblem = OdeProblem
   { odeEvents :: V.Vector EventSpec
@@ -186,51 +174,3 @@ sunTypesTable = Map.fromList
 -- | Allows to map between Haskell and C types
 sunCtx :: Context
 sunCtx = mempty {ctxTypesTable = sunTypesTable}
-
--- | The Katip payload for logging Sundials errors
-data SundialsErrorContext = SundialsErrorContext
-  { sundialsErrorCode :: !Int
-  , sundialsErrorModule :: !T.Text
-  , sundialsErrorFunction :: !T.Text
-  } deriving Generic
-instance ToJSON SundialsErrorContext
-instance ToObject SundialsErrorContext
-instance LogItem SundialsErrorContext where
-  payloadKeys _ _ = AllKeys
-
-type ReportErrorFn =
-  (  CInt    -- error code
-  -> CString -- module name
-  -> CString -- function name
-  -> CString -- the message
-  -> Ptr ()  -- user data (ignored)
-  -> IO ()
-  )
-
-logWithKatip
-  :: Katip m
-  => m ReportErrorFn
-logWithKatip = do
-  log_env <- getLogEnv
-  return $
-    \err_code c_mod_name c_func_name c_msg _userdata -> do
-    let
-      toText :: CString -> IO T.Text
-      toText = fmap T.decodeUtf8 . BS.packCString
-    mod_name <- toText c_mod_name
-    func_name <- toText c_func_name
-    msg <- toText c_msg
-    let
-      severity :: Severity
-      severity =
-        if err_code <= 0
-          then ErrorS
-          else WarningS
-      errCtx :: SundialsErrorContext
-      errCtx = SundialsErrorContext
-        { sundialsErrorCode = fromIntegral err_code
-        , sundialsErrorModule = mod_name
-        , sundialsErrorFunction = func_name
-        }
-    flip runReaderT log_env . unKatipT $ do
-      logF errCtx "sundials" severity (logStr msg)

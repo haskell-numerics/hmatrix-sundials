@@ -2,31 +2,15 @@ module Numeric.Sundials
   ( -- * The solving function
     solve
     -- * Types
-  , OdeProblem(..)
-  , Method
-  , Tolerances(..)
-  , OdeRhsCType
-  , SunVector
-  , OdeRhs(..)
-  , UserData
-  , Jacobian
-  , ODEOpts(..)
-  , SundialsDiagnostics(..)
-  , ErrorDiagnostics(..)
-  , emptyDiagnostics
-  , SundialsSolution(..)
-  , EventInfo(..)
-  , CrossingDirection(..)
-  , EventSpec(..)
   , ARKMethod(..)
   , CVMethod(..)
+  , module Numeric.Sundials.Types
   ) where
 
 import Numeric.Sundials.Types
 import Numeric.Sundials.Common
 import Numeric.Sundials.CVode as CV
 import Numeric.Sundials.ARKode as ARK
-import Control.Monad.IO.Class
 import Katip
 
 -- | Solve an ODE system using either ARKode or CVode (depending on what

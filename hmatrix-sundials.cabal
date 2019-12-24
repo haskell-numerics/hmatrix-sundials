@@ -53,6 +53,10 @@ library
                        FlexibleContexts
                        AllowAmbiguousTypes
                        TypeApplications
+                       DeriveGeneric
+                       DeriveAnyClass
+                       OverloadedStrings
+  ghc-options:         -Wall
 
 test-suite test
   type:                exitcode-stdio-1.0
