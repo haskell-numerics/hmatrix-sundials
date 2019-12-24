@@ -54,12 +54,25 @@ import Control.Monad.Reader
 
 data OdeProblem = OdeProblem
   { odeEvents :: V.Vector EventSpec
+    -- ^ The events that may occur, including the condition when they occur
+    -- and how to update the state of the system when they do.
   , odeMaxEvents :: !Int
+    -- ^ The maximal number of events that may occur. This is needed to
+    -- allocate enough space to store the events. If more events occur, an
+    -- error is returned.
   , odeRhs :: OdeRhs
+    -- ^ The right-hand side of the system: either a Haskell function or
+    -- a pointer to a compiled function.
   , odeJacobian :: Maybe (Double -> Vector Double -> Matrix Double)
+    -- ^ The optional Jacobian (the arguments are the time and the state
+    -- vector).
   , odeInitCond :: VS.Vector Double
+    -- ^ The initial conditions of the problem.
   , odeSolTimes :: VS.Vector Double
+    -- ^ The requested solution times. The actual solution times may be
+    -- larger if any events occurred.
   , odeTolerances :: Tolerances
+    -- ^ How much error is tolerated in each variable.
   }
 
 data Tolerances = Tolerances

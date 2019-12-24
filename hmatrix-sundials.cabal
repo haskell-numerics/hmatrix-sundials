@@ -51,6 +51,8 @@ library
                        TypeSynonymInstances
                        FlexibleInstances
                        FlexibleContexts
+                       AllowAmbiguousTypes
+                       TypeApplications
 
 test-suite test
   type:                exitcode-stdio-1.0

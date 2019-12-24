@@ -32,7 +32,7 @@ C.include "<sundials/sundials_math.h>"
 C.include "../../helpers.h"
 C.include "Numeric/Sundials/Foreign_hsc.h"
 
--- | Stepping functions
+-- | Available methods for CVode
 data CVMethod = ADAMS
               | BDF
   deriving (Eq, Ord, Show, Read)
@@ -40,6 +40,7 @@ data CVMethod = ADAMS
 instance Method CVMethod where
   methodToInt ADAMS = cV_ADAMS
   methodToInt BDF   = cV_BDF
+  methodSolver = CVode
 
 solveC :: CConsts -> CVars (VS.MVector RealWorld) -> ReportErrorFn -> IO CInt
 solveC CConsts{..} CVars{..} report_error =

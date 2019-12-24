@@ -1,5 +1,4 @@
 -- | Common infrastructure for CVode/ARKode
-{-# LANGUAGE TemplateHaskell #-}
 module Numeric.Sundials.Common where
 
 import Foreign.C.Types
@@ -119,8 +118,11 @@ data CConsts = CConsts
   , c_init_step_size :: CDouble
   }
 
+data Solver = CVode | ARKode
+
 class Method method where
   methodToInt :: method -> CInt
+  methodSolver :: Solver
 
 withCConsts
   :: Method method

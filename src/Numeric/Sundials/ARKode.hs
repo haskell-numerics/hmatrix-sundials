@@ -32,7 +32,7 @@ C.include "<sundials/sundials_math.h>"
 C.include "Numeric/Sundials/Foreign_hsc.h"
 C.include "../../helpers.h"
 
--- | Stepping functions
+-- | Available methods for ARKode
 data ARKMethod = SDIRK_2_1_2
                | BILLINGTON_3_3_2
                | TRBDF2_3_3_2
@@ -84,6 +84,8 @@ instance Method ARKMethod where
   methodToInt ARK548L2SA_ERK_8_4_5    = aRK548L2SA_ERK_8_4_5
   methodToInt VERNER_8_5_6            = vERNER_8_5_6
   methodToInt FEHLBERG_13_7_8         = fEHLBERG_13_7_8
+
+  methodSolver = ARKode
 
 solveC :: CConsts -> CVars (VS.MVector RealWorld) -> ReportErrorFn -> IO CInt
 solveC CConsts{..} CVars{..} report_error =

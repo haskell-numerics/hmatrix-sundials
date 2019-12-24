@@ -1,11 +1,12 @@
 module Numeric.Sundials
-  ( -- * Solving functions
-    solveCV
-  , solveARK
+  ( -- * The solving function
+    solve
     -- * Types
   , OdeProblem(..)
+  , Method
   , Tolerances(..)
   , OdeRhsCType
+  , SunVector
   , OdeRhs(..)
   , UserData
   , Jacobian
@@ -28,16 +29,14 @@ import Numeric.Sundials.ARKode as ARK
 import Control.Monad.IO.Class
 import Katip
 
-solveCV
-  :: Katip m
-  => ODEOpts CVMethod
-  -> OdeProblem
+-- | Solve an ODE system using either ARKode or CVode (depending on what
+-- @method@ is instantiated with).
+solve
+  :: forall m method . (Katip m, Method method)
+  => ODEOpts method -- ^ solver options
+  -> OdeProblem -- ^ the ODE system to solve
   -> m (Either ErrorDiagnostics SundialsSolution)
-solveCV = solveCommon CV.solveC
-
-solveARK
-  :: Katip m
-  => ODEOpts ARKMethod
-  -> OdeProblem
-  -> m (Either ErrorDiagnostics SundialsSolution)
-solveARK = solveCommon ARK.solveC
+solve =
+  case methodSolver @method of
+    CVode -> solveCommon CV.solveC
+    ARKode -> solveCommon ARK.solveC
