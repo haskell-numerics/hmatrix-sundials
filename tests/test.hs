@@ -76,6 +76,7 @@ main = do
           [ withVsWithoutJacobian opts
           , eventTests opts
           , noErrorTests opts
+          , discontinuousRhsTest opts
           ]
       | method <- methods
       ]
@@ -156,6 +157,13 @@ eventTests opts = testGroup "Events"
       V.forM_ (V.zip (V.map eventTime events) [1.119766,3.359295,5.598820]) $ \(et_got, et_exp) ->
         checkDiscrepancy 1e-4 (abs (et_exp - et_got))
   ]
+
+discontinuousRhsTest opts = testCaseInfo "Discontinuous derivative" $ do
+  Right (solutionMatrix -> mx) <- runKatipT ?log_env $ solve opts discontinuousRHS
+  let y1 = VS.last $ flatten mx
+      diff = abs (y1 - 1)
+  checkDiscrepancy 0.1 (abs (y1 - 1))
+  return $ printf "%.2e" diff
 
 ----------------------------------------------------------------------
 --                           ODE problems
@@ -276,6 +284,39 @@ boundedSine = OdeProblem
                      , eventDirection = Downwards
                      , eventStopSolver = False
                      }
+      ]
+
+-- | An example of a system with a discontinuous RHS
+discontinuousRHS = OdeProblem
+  { odeRhs = OdeRhsHaskell $ \t _ ->
+      if t1 <= t && t <= t2
+        then [deriv]
+        else [0]
+  , odeJacobian = Nothing
+  , odeInitCond = [0]
+  , odeEvents = events
+  , odeMaxEvents = 10
+  , odeSolTimes = [0,1]
+  , odeTolerances = defaultTolerances
+  }
+  where
+    t1, t2 :: Fractional a => a
+    t1 = 0.01
+    t2 = 0.02
+    deriv = 100
+    events =
+      [ EventSpec
+        { eventCondition = \t _ -> t - t1
+        , eventUpdate = \t y -> y
+        , eventDirection = Upwards
+        , eventStopSolver = False
+        }
+      , EventSpec
+        { eventCondition = \t _ -> t - t2
+        , eventUpdate = \t y -> y
+        , eventDirection = Upwards
+        , eventStopSolver = False
+        }
       ]
 
 largeTs :: V.Vector Double
