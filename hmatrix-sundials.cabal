@@ -70,6 +70,7 @@ test-suite test
                        hmatrix-sundials,
                        katip
   default-language:    Haskell2010
+  ghc-options:         -Wall -Wno-missing-signatures
 
 
 benchmark benchmark

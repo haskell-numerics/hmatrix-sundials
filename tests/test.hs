@@ -10,13 +10,8 @@ import Numeric.LinearAlgebra as L
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector as V
 import Katip
-import Foreign.C.Types
 import System.IO
 import Text.Printf (printf)
-import GHC.Stack
-import Control.Monad
-import Data.Bifunctor
-import Data.Coerce
 
 ----------------------------------------------------------------------
 --                            Helpers
@@ -307,17 +302,14 @@ discontinuousRHS = OdeProblem
     events =
       [ EventSpec
         { eventCondition = \t _ -> t - t1
-        , eventUpdate = \t y -> y
+        , eventUpdate = \_ y -> y
         , eventDirection = Upwards
         , eventStopSolver = False
         }
       , EventSpec
         { eventCondition = \t _ -> t - t2
-        , eventUpdate = \t y -> y
+        , eventUpdate = \_ y -> y
         , eventDirection = Upwards
         , eventStopSolver = False
         }
       ]
-
-largeTs :: V.Vector Double
-largeTs = V.fromList $ 0.0 : take 12 (iterate (*10) 0.04)
