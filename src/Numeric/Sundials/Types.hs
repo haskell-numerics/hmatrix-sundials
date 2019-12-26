@@ -158,7 +158,11 @@ data EventSpec = EventSpec
   , eventDirection  :: !CrossingDirection
   , eventUpdate     :: Double -> VS.Vector Double -> VS.Vector Double
   , eventStopSolver :: !Bool
-      -- ^ if 'eventUpdate' is 'Nothing', we should just stop the solver
+  , eventRecord     :: !Bool
+    -- ^ Whether to record this event in the output matrix.
+    -- If an event is not recorded, it does not count towards 'odeMaxEvents'.
+    -- Such events are useful to alert the solver about the discontinuities
+    -- of the RHS.
   }
 
 sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ

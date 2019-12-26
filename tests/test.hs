@@ -133,11 +133,13 @@ eventTests opts = testGroup "Events"
                         , eventUpdate = upd
                         , eventDirection = AnyDirection
                         , eventStopSolver = False
+                        , eventRecord = True
                         }
             , EventSpec { eventCondition = \_t y -> y ! 2 - 0.01
                         , eventUpdate = upd
                         , eventDirection = AnyDirection
                         , eventStopSolver = False
+                        , eventRecord = True
                         }
             ]
           , odeMaxEvents = 100
@@ -155,7 +157,8 @@ eventTests opts = testGroup "Events"
 
 discontinuousRhsTest opts = testCaseInfo "Discontinuous derivative" $ do
   Right (solutionMatrix -> mx) <- runKatipT ?log_env $ solve opts discontinuousRHS
-  let y1 = VS.last $ flatten mx
+  rows mx @?= 2 -- because the auxiliary events are not recorded
+  let y1 = mx ! 1 ! 0
       diff = abs (y1 - 1)
   checkDiscrepancy 0.1 (abs (y1 - 1))
   return $ printf "%.2e" diff
@@ -213,6 +216,7 @@ exponential = OdeProblem
                   , eventUpdate = \_ _ -> vector [ 2 ]
                   , eventDirection = Upwards
                   , eventStopSolver = False
+                  , eventRecord = True
                   }
       ]
 
@@ -273,11 +277,13 @@ boundedSine = OdeProblem
                      , eventUpdate = \_ y -> vector [ y ! 0, - abs (y ! 1) ]
                      , eventDirection = Upwards
                      , eventStopSolver = False
+                     , eventRecord = True
                      }
       , EventSpec { eventCondition = \_t y -> y ! 0 + 0.9
                      , eventUpdate = \_ y -> vector [ y ! 0, abs (y ! 1) ]
                      , eventDirection = Downwards
                      , eventStopSolver = False
+                     , eventRecord = True
                      }
       ]
 
@@ -305,11 +311,13 @@ discontinuousRHS = OdeProblem
         , eventUpdate = \_ y -> y
         , eventDirection = Upwards
         , eventStopSolver = False
+        , eventRecord = False
         }
       , EventSpec
         { eventCondition = \t _ -> t - t2
         , eventUpdate = \_ y -> y
         , eventDirection = Upwards
         , eventStopSolver = False
+        , eventRecord = False
         }
       ]

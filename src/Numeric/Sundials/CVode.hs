@@ -204,6 +204,7 @@ solveC CConsts{..} CVars{..} report_error =
       */
       int good_event = 0;
       int stop_solver = 0;
+      int record_event;
       flag = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *c_root_info)));
       if (check_flag(&flag, "CVodeGetRootInfo", 1, report_error)) return 1;
       for (i = 0; i < $(int c_n_event_specs); i++) {
@@ -217,6 +218,7 @@ solveC CConsts{..} CVars{..} report_error =
           ($vec-ptr:(double *c_event_time))[event_ind] = t;
           event_ind++;
           stop_solver = ($vec-ptr:(int *c_event_stops_solver))[i];
+          record_event = ($vec-ptr:(int *c_event_record))[i];
 
           /* Update the state with the supplied function */
           $fun:(int (* c_apply_event) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
@@ -224,12 +226,14 @@ solveC CConsts{..} CVars{..} report_error =
       }
 
       if (good_event) {
-        ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
-        for (j = 0; j < c_dim; j++) {
-          ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
+        if (record_event) {
+          ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
+          for (j = 0; j < c_dim; j++) {
+            ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
+          }
+          output_ind++;
+          ($vec-ptr:(int *c_n_rows))[0] = output_ind;
         }
-        output_ind++;
-        ($vec-ptr:(int *c_n_rows))[0] = output_ind;
 
         if (stop_solver) {
           break;
@@ -242,7 +246,8 @@ solveC CConsts{..} CVars{..} report_error =
 
         flag = CVodeReInit(cvode_mem, t, y);
         if (check_flag(&flag, "CVodeReInit", 1, report_error)) return(1);
-      } else {
+      } 
+      if (!good_event || !record_event) {
         /* Since this is not a wanted event, it shouldn't get a row */
         output_ind--;
         ($vec-ptr:(int *c_n_rows))[0] = output_ind;

@@ -117,6 +117,7 @@ data CConsts = CConsts
           -> IO CInt
   , c_requested_event_direction :: VS.Vector CInt
   , c_event_stops_solver :: VS.Vector CInt
+  , c_event_record :: VS.Vector CInt
   , c_max_events :: CInt
   , c_minstep :: CDouble
   , c_max_n_steps :: SunIndexType
@@ -172,6 +173,10 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
     c_event_stops_solver =
       V.convert
       . V.map (fromIntegral . fromEnum . eventStopSolver)
+      $ odeEvents
+    c_event_record =
+      V.convert
+      . V.map (fromIntegral . fromEnum . eventRecord)
       $ odeEvents
     c_max_events = fromIntegral odeMaxEvents
     c_jac_set = fromIntegral . fromEnum $ isJust odeJacobian
