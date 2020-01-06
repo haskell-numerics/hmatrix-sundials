@@ -269,13 +269,15 @@ solveC CConsts{..} CVars{..} report_error =
         int req_dir = ($vec-ptr:(const int *c_requested_event_direction))[i];
         if (ev != 0 && ev * req_dir >= 0) {
           good_event = 1;
-
-          ($vec-ptr:(int *c_actual_event_direction))[event_ind] = ev;
-          ($vec-ptr:(int *c_event_index))[event_ind] = i;
-          ($vec-ptr:(double *c_event_time))[event_ind] = t;
-          event_ind++;
-          stop_solver = ($vec-ptr:(int *c_event_stops_solver))[i];
           record_event = ($vec-ptr:(int *c_event_record))[i];
+          stop_solver = ($vec-ptr:(int *c_event_stops_solver))[i];
+
+          if (record_event) {
+            ($vec-ptr:(int *c_actual_event_direction))[event_ind] = ev;
+            ($vec-ptr:(int *c_event_index))[event_ind] = i;
+            ($vec-ptr:(double *c_event_time))[event_ind] = t;
+            event_ind++;
+          }
 
           /* Update the state with the supplied function */
           $fun:(int (* c_apply_event) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);

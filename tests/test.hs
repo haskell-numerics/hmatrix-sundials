@@ -156,7 +156,9 @@ eventTests opts = testGroup "Events"
   ]
 
 discontinuousRhsTest opts = testCaseInfo "Discontinuous derivative" $ do
-  Right (solutionMatrix -> mx) <- runKatipT ?log_env $ solve opts discontinuousRHS
+  Right r <- runKatipT ?log_env $ solve opts discontinuousRHS
+  V.length (eventInfo r) @?= 0
+  let mx = solutionMatrix r
   rows mx @?= 2 -- because the auxiliary events are not recorded
   let y1 = mx ! 1 ! 0
       diff = abs (y1 - 1)
