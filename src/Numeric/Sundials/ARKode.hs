@@ -219,6 +219,13 @@ solveC CConsts{..} CVars{..} report_error =
 
     double ti = ($vec-ptr:(double *c_sol_time))[input_ind];
     flag = ARKStepEvolve(arkode_mem, ti, y, &t, ARK_NORMAL); /* call integrator */
+    if (flag == ARK_TOO_CLOSE) {
+      /* See Note [CV_TOO_CLOSE]
+         No solving was required; just set the time t manually and continue
+         as if solving succeeded. */
+      t = ti;
+    }
+    else
     if (check_flag(&flag, "ARKode", 1, report_error)) {
       N_Vector ele = N_VNew_Serial(c_dim);
       N_Vector weights = N_VNew_Serial(c_dim);

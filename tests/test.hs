@@ -1,6 +1,9 @@
 {-# LANGUAGE RecordWildCards, ScopedTypeVariables, OverloadedStrings,
              ViewPatterns, ImplicitParams, OverloadedLists, RankNTypes,
              ExistentialQuantification, LambdaCase, NumDecimals #-}
+
+import Prelude hiding (quot)
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -53,6 +56,15 @@ allPairs = \case
   [] -> []
   x : xs -> map ((,) x) xs ++ allPairs xs
 
+fmod :: RealFrac a => a -> a -> a
+fmod arg1 arg2 =
+  let
+    quot = arg1 / arg2
+    quot_floor = realToFrac (floor quot :: Integer)
+    quot_floor_times_divisor = quot_floor * arg2
+  in
+    arg1 - quot_floor_times_divisor
+
 ----------------------------------------------------------------------
 --                             The tests
 ----------------------------------------------------------------------
@@ -72,6 +84,7 @@ main = do
           , eventTests opts
           , noErrorTests opts
           , discontinuousRhsTest opts
+          , modulusEventTest opts
           ]
       | method <- methods
       ]
@@ -163,6 +176,16 @@ discontinuousRhsTest opts = testCaseInfo "Discontinuous derivative" $ do
   let y1 = mx ! 1 ! 0
       diff = abs (y1 - 1)
   checkDiscrepancy 0.1 (abs (y1 - 1))
+  return $ printf "%.2e" diff
+
+modulusEventTest opts = testCaseInfo "Modulus event" $ do
+  Right r <- runKatipT ?log_env $ solve opts modulusEvent
+  V.length (eventInfo r) @?= 0
+  let mx = solutionMatrix r
+  rows mx @?= 2 -- because the auxiliary events are not recorded
+  let y1 = mx ! 1 ! 0
+      diff = abs (y1 - 1)
+  checkDiscrepancy 0.1 (abs (y1 - 0.5))
   return $ printf "%.2e" diff
 
 ----------------------------------------------------------------------
@@ -319,6 +342,31 @@ discontinuousRHS = OdeProblem
         { eventCondition = \t _ -> t - t2
         , eventUpdate = \_ y -> y
         , eventDirection = Upwards
+        , eventStopSolver = False
+        , eventRecord = False
+        }
+      ]
+
+modulusEvent = OdeProblem
+  { odeRhs = OdeRhsHaskell $ \t _ -> [t `fmod` 1]
+  , odeJacobian = Nothing
+  , odeInitCond = [0]
+  , odeEvents = events
+  , odeMaxEvents = 10
+  , odeSolTimes = [0,1]
+  , odeTolerances = defaultTolerances
+  }
+  where
+    events =
+      [ EventSpec
+        { eventCondition = \t _ ->
+            let
+              a = t
+              b = 1
+            in
+              abs((a-b/2) `fmod` (2*b) - b) - b/2
+        , eventUpdate = \_ y -> y
+        , eventDirection = AnyDirection
         , eventStopSolver = False
         , eventRecord = False
         }

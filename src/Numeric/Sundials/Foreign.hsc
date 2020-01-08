@@ -11,6 +11,7 @@ module Numeric.Sundials.Foreign
   , vectorToC
   , cV_SUCCESS
   , cV_ROOT_RETURN
+  , cV_TOO_CLOSE
   , SunIndexType
   , SunRealType
   , SunMatrix(..)
@@ -175,6 +176,8 @@ cV_SUCCESS :: CInt
 cV_SUCCESS = #const CV_SUCCESS
 cV_ROOT_RETURN :: CInt
 cV_ROOT_RETURN = #const CV_ROOT_RETURN
+cV_TOO_CLOSE :: CInt
+cV_TOO_CLOSE = #const CV_TOO_CLOSE
 
 cV_ADAMS :: CInt
 cV_ADAMS = #const CV_ADAMS

@@ -162,6 +162,13 @@ solveC CConsts{..} CVars{..} report_error =
   while (1) {
     double ti = ($vec-ptr:(double *c_sol_time))[input_ind];
     flag = CVode(cvode_mem, ti, y, &t, CV_NORMAL); /* call integrator */
+    if (flag == CV_TOO_CLOSE) {
+      /* See Note [CV_TOO_CLOSE]
+         No solving was required; just set the time t manually and continue
+         as if solving succeeded. */
+      t = ti;
+    }
+    else
     if (check_flag(&flag, "CVode", 1, report_error)) {
       N_Vector ele = N_VNew_Serial(c_dim);
       N_Vector weights = N_VNew_Serial(c_dim);
@@ -311,3 +318,26 @@ solveC CConsts{..} CVars{..} report_error =
 
   return CV_SUCCESS;
  } |]
+
+{- Note [CV_TOO_CLOSE]
+   ~~~~~~~~~~~~~~~~~~~
+   One edge condition that may occur is that an event time may exactly
+   coincide with a solving time (e.g. they are both exactly equal to an
+   integer). Then the following will happen:
+
+   * Sundials will indicate a root at t1.
+   * We will handle the event and re-initialize the system at t1.
+   * We restart Sundials with the tout being equal to the next solving time,
+     which also happens to be equal t1.
+   * Sundials sees that the start and end solving times are equal, and
+     returns the CV_TOO_CLOSE error.
+
+   Calculating on our side when the start and end times are "too close" by
+   Sundials standards is a bit complicated (see the code at the beginning
+   of the cvHin function). It's much easier just to call Sundials and
+   handle the error.
+
+   For that, however, we need to make sure we ignore CV_TOO_CLOSE in our
+   error handler so as not to confuse the end users with mysterious error
+   messages in the logs.
+-}

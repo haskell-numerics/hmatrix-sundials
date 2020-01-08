@@ -347,7 +347,9 @@ logWithKatip
 logWithKatip = do
   log_env <- getLogEnv
   return $
-    \err_code c_mod_name c_func_name c_msg _userdata -> do
+    \err_code c_mod_name c_func_name c_msg _userdata ->
+    -- See Note [CV_TOO_CLOSE]
+    if err_code == T.cV_TOO_CLOSE then pure () else do
     let
       toText :: CString -> IO T.Text
       toText = fmap T.decodeUtf8 . BS.packCString
