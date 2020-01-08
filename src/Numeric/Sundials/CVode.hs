@@ -169,6 +169,15 @@ solveC CConsts{..} CVars{..} report_error =
       t = ti;
     }
     else
+    if (t == ti && flag == CV_ROOT_RETURN) {
+      /* See Note [CV_TOO_CLOSE]
+         Probably the initial step size was set, and that's why we didn't
+         get CV_TOO_CLOSE.
+         Pretend that the root didn't happen, lest we keep handling it
+         forever. */
+      flag = CV_SUCCESS;
+    }
+    else
     if (check_flag(&flag, "CVode", 1, report_error)) {
       N_Vector ele = N_VNew_Serial(c_dim);
       N_Vector weights = N_VNew_Serial(c_dim);
@@ -255,7 +264,7 @@ solveC CConsts{..} CVars{..} report_error =
 
         flag = CVodeReInit(cvode_mem, t, y);
         if (check_flag(&flag, "CVodeReInit", 1, report_error)) return(1);
-      } 
+      }
       if (!good_event || !record_event) {
         /* Since this is not a wanted event, it shouldn't get a row */
         output_ind--;
@@ -340,4 +349,9 @@ solveC CConsts{..} CVars{..} report_error =
    For that, however, we need to make sure we ignore CV_TOO_CLOSE in our
    error handler so as not to confuse the end users with mysterious error
    messages in the logs.
+
+   That said, we can't always rely on CV_TOO_CLOSE. When the initial step
+   size is set, cvHin is not called, and CV_TOO_CLOSE is not triggered.
+   Therefore we also add an explicit check to avoid an infinite loop of
+   integrating over an empty interval.
 -}

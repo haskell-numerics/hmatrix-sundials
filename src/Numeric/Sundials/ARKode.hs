@@ -226,6 +226,15 @@ solveC CConsts{..} CVars{..} report_error =
       t = ti;
     }
     else
+    if (t == ti && flag == ARK_ROOT_RETURN) {
+      /* See Note [CV_TOO_CLOSE]
+         Probably the initial step size was set, and that's why we didn't
+         get ARK_TOO_CLOSE.
+         Pretend that the root didn't happen, lest we keep handling it
+         forever. */
+      flag = ARK_SUCCESS;
+    }
+    else
     if (check_flag(&flag, "ARKode", 1, report_error)) {
       N_Vector ele = N_VNew_Serial(c_dim);
       N_Vector weights = N_VNew_Serial(c_dim);
