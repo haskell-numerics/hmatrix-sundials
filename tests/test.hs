@@ -204,7 +204,7 @@ modulusEventTest opts0 = localOption (mkTimeout 1e5) $ testGroup "Modulus event"
 
 brusselator :: (String, OdeProblem)
 brusselator = (,) "brusselator" $ OdeProblem
-  { odeRhs = OdeRhsHaskell $ \_t x ->
+  { odeRhs = odeRhsPure $ \_t x ->
       let
         u = x VS.! 0
         v = x VS.! 1
@@ -237,7 +237,7 @@ brusselator = (,) "brusselator" $ OdeProblem
     eps = 5.0e-6
 
 exponential = OdeProblem
-  { odeRhs = OdeRhsHaskell $ \_ y -> [y VS.! 0]
+  { odeRhs = odeRhsPure $ \_ y -> [y VS.! 0]
   , odeJacobian = Nothing
   , odeInitCond = vector [1]
   , odeEvents = events
@@ -256,7 +256,7 @@ exponential = OdeProblem
       ]
 
 robertson = (,) "Robertson" $ OdeProblem
-  { odeRhs = OdeRhsHaskell $ \_ (VS.toList -> [y1,y2,y3]) ->
+  { odeRhs = odeRhsPure $ \_ (VS.toList -> [y1,y2,y3]) ->
       [ -0.04 * y1 + 1.0e4 * y2 * y3
       , 0.04 * y1 - 1.0e4 * y2 * y3 - 3.0e7 * (y2)^(2 :: Int)
       , 3.0e7 * (y2)^(2 :: Int)
@@ -274,7 +274,7 @@ robertson = (,) "Robertson" $ OdeProblem
   }
 
 empty = (,) "Empty system" $ OdeProblem
-  { odeRhs = OdeRhsHaskell $ \_ _ -> []
+  { odeRhs = odeRhsPure $ \_ _ -> []
   , odeJacobian = Nothing
   , odeInitCond = []
   , odeEvents = []
@@ -284,7 +284,7 @@ empty = (,) "Empty system" $ OdeProblem
   }
 
 stiffish = (,) "Stiffish" $ OdeProblem
-  { odeRhs = OdeRhsHaskell $ \t ((VS.! 0) -> u) -> [ lamda * u + 1.0 / (1.0 + t * t) - lamda * atan t ]
+  { odeRhs = odeRhsPure $ \t ((VS.! 0) -> u) -> [ lamda * u + 1.0 / (1.0 + t * t) - lamda * atan t ]
   , odeJacobian = Nothing
   , odeInitCond = [0.0]
   , odeEvents = []
@@ -298,7 +298,7 @@ stiffish = (,) "Stiffish" $ OdeProblem
 -- A sine wave that only changes direction once it reaches ±0.9.
 -- Illustrates event-specific reset function
 boundedSine = OdeProblem
-  { odeRhs = OdeRhsHaskell $ \_t y -> [y VS.! 1, - y VS.! 0]
+  { odeRhs = odeRhsPure $ \_t y -> [y VS.! 1, - y VS.! 0]
   , odeJacobian = Nothing
   , odeInitCond = [0,1]
   , odeEvents = events
@@ -324,7 +324,7 @@ boundedSine = OdeProblem
 
 -- | An example of a system with a discontinuous RHS
 discontinuousRHS = OdeProblem
-  { odeRhs = OdeRhsHaskell $ \t _ ->
+  { odeRhs = odeRhsPure $ \t _ ->
       if t1 <= t && t <= t2
         then [deriv]
         else [0]
@@ -358,7 +358,7 @@ discontinuousRHS = OdeProblem
       ]
 
 modulusEvent = OdeProblem
-  { odeRhs = OdeRhsHaskell $ \t _ -> [t `fmod` 1]
+  { odeRhs = odeRhsPure $ \t _ -> [t `fmod` 1]
   , odeJacobian = Nothing
   , odeInitCond = [0]
   , odeEvents = events

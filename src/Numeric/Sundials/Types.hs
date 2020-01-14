@@ -3,6 +3,7 @@ module Numeric.Sundials.Types
   , Tolerances(..)
   , OdeRhsCType
   , OdeRhs(..)
+  , odeRhsPure
   , UserData
   , Jacobian
   , ODEOpts(..)
@@ -80,8 +81,14 @@ data UserData
 --
 -- Can be either a Haskell function or a pointer to a C function.
 data OdeRhs
-  = OdeRhsHaskell (CDouble -> VS.Vector CDouble -> VS.Vector CDouble)
+  = OdeRhsHaskell (CDouble -> VS.Vector CDouble -> IO (VS.Vector CDouble))
   | OdeRhsC (FunPtr OdeRhsCType) (Ptr UserData)
+
+-- | A version of 'OdeRhsHaskell' that accepts a pure function
+odeRhsPure
+  :: (CDouble -> VS.Vector CDouble -> VS.Vector CDouble)
+  -> OdeRhs
+odeRhsPure f = OdeRhsHaskell $ \t y -> return $ f t y
 
 type Jacobian = Double -> Vector Double -> Matrix Double
 

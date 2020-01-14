@@ -196,8 +196,9 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
           funIO :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr UserData -> IO CInt
           funIO t y f _ptr = do
             sv <- peek y
+            r <- fun t (sunVecVals sv)
             poke f $ SunVector { sunVecN = sunVecN sv
-                               , sunVecVals = fun t (sunVecVals sv)
+                               , sunVecVals = r
                                }
             return 0
         funptr <- ContT $ bracket (mkOdeRhsC funIO) freeHaskellFunPtr
