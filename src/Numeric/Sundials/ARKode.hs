@@ -124,6 +124,15 @@ solveC CConsts{..} CVars{..} report_error =
   realtype T0 = RCONST(($vec-ptr:(double *c_sol_time))[0]); /* initial time              */
   sunindextype c_dim = $(sunindextype c_dim);           /* number of dependent vars. */
 
+  /* t_start tracks the starting point of the integration in order to detect
+     empty integration interval and avoid a potential infinite loop;
+     see Note [CV_TOO_CLOSE]. Unlike T0, t_start is updated every time we
+     restart the solving after handling (or not) an event.
+     Why not just look for the last recorded time in c_output_mat? Because
+     an event may have eventRecord = False and not be present there.
+  */
+  double t_start = T0;
+
   /* Initialize data structures */
 
   ARKErrHandlerFn report_error = $fun:(void (*report_error)(int,const char*, const char*, char*, void*));
@@ -226,7 +235,7 @@ solveC CConsts{..} CVars{..} report_error =
       t = ti;
     }
     else
-    if (t == ti && flag == ARK_ROOT_RETURN) {
+    if (t == ti && t == t_start && flag == ARK_ROOT_RETURN) {
       /* See Note [CV_TOO_CLOSE]
          Probably the initial step size was set, and that's why we didn't
          get ARK_TOO_CLOSE.
@@ -320,6 +329,7 @@ solveC CConsts{..} CVars{..} report_error =
         }
 
         /* Reinitialize */
+        t_start = t;
         if ($(int c_method) < MIN_DIRK_NUM) {
           flag = ARKStepReInit(arkode_mem, c_rhs, NULL, t, y);
         } else {

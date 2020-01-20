@@ -179,23 +179,28 @@ discontinuousRhsTest opts = testCaseInfo "Discontinuous derivative" $ do
   return $ printf "%.2e" diff
 
 modulusEventTest opts0 = localOption (mkTimeout 1e5) $ testGroup "Modulus event"
-  [ testCaseInfo ("Init step is " ++ show initStep) $ do
-      let opts = opts0 { initStep }
-      Right r <- runKatipT ?log_env $ solve opts modulusEvent
-      V.length (eventInfo r) @?= 0
-      let mx = solutionMatrix r
-      rows mx @?= 2 -- because the auxiliary events are not recorded
-      let y1 = mx ! 1 ! 0
-      -- We don't check the answer here; all we care about is not failing
-      -- or entering an infinite loop (hence the timeout).
-      -- (Side note: the timeout doesn't seem to trigger when the infinite
-      -- loop actually happens. I'm not sure why, since we're making safe
-      -- calls, which should be interruptible? -fno-omit-yields doesn't
-      -- seem to help either. Maybe worth investigating.)
-      -- When step size is big, the result will not be accurate.
-      -- However, we display it just FYI:
-      return $ printf "Result: %.3f (expected 5.0)" y1
-  | initStep <- [Nothing, Just 1, Just (1 - 2**(-53))]
+  [ testGroup (if record_event then "Recording events" else "Not recording events")
+    [ testCaseInfo ("Init step is " ++ show initStep) $ do
+        let opts = opts0 { initStep }
+        Right r <- runKatipT ?log_env $ solve opts (modulusEvent record_event)
+        V.length (eventInfo r) @?=
+          (if record_event then 10 else 0)
+        let mx = solutionMatrix r
+        rows mx @?=
+          (if record_event then 22 else 2) -- because the auxiliary events are not recorded
+        let y1 = mx ! 1 ! 0
+        -- We don't check the answer here; all we care about is not failing
+        -- or entering an infinite loop (hence the timeout).
+        -- (Side note: the timeout doesn't seem to trigger when the infinite
+        -- loop actually happens. I'm not sure why, since we're making safe
+        -- calls, which should be interruptible? -fno-omit-yields doesn't
+        -- seem to help either. Maybe worth investigating.)
+        -- When step size is big, the result will not be accurate.
+        -- However, we display it just FYI:
+        return $ printf "Result: %.3f (expected 5.0)" y1
+    | initStep <- [Nothing, Just 1, Just (1 - 2**(-53))]
+    ]
+  | record_event <- [False, True]
   ]
 
 ----------------------------------------------------------------------
@@ -357,12 +362,12 @@ discontinuousRHS = OdeProblem
         }
       ]
 
-modulusEvent = OdeProblem
+modulusEvent record_event = OdeProblem
   { odeRhs = odeRhsPure $ \t _ -> [t `fmod` 1]
   , odeJacobian = Nothing
   , odeInitCond = [0]
   , odeEvents = events
-  , odeMaxEvents = 10
+  , odeMaxEvents = 11
   , odeSolTimes = [0,10]
   , odeTolerances = defaultTolerances
   }
@@ -378,6 +383,6 @@ modulusEvent = OdeProblem
         , eventUpdate = \_ y -> y
         , eventDirection = AnyDirection
         , eventStopSolver = False
-        , eventRecord = False
+        , eventRecord = record_event
         }
       ]
