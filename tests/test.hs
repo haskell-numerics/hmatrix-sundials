@@ -85,6 +85,7 @@ main = do
           , noErrorTests opts
           , discontinuousRhsTest opts
           , modulusEventTest opts
+          , cascadingEventsTest opts
           ]
       | method <- methods
       ]
@@ -202,6 +203,36 @@ modulusEventTest opts0 = localOption (mkTimeout 1e5) $ testGroup "Modulus event"
     ]
   | record_event <- [False, True]
   ]
+
+cascadingEventsTest opts = testCase "Cascading events are not triggered by Sundials" $ do
+  let prob = OdeProblem
+        { odeRhs = odeRhsPure $ \_ _ -> [1, 0]
+        , odeJacobian = Nothing
+        , odeInitCond = [0, 0]
+        , odeEvents = events
+        , odeMaxEvents = 100
+        , odeSolTimes = [0,10]
+        , odeTolerances = defaultTolerances
+        }
+      events =
+        [ EventSpec { eventCondition = \_t y -> y ! 0 - 5
+                    , eventUpdate = \_ y -> [7, y ! 1]
+                    , eventDirection = AnyDirection
+                    , eventStopSolver = False
+                    , eventRecord = True
+                    }
+        , EventSpec { eventCondition = \_t y -> y ! 0 - 6
+                    , eventUpdate = \_ y -> [y ! 0, 1]
+                    , eventDirection = AnyDirection
+                    , eventStopSolver = False
+                    , eventRecord = True
+                    }
+        ]
+
+  Right sol <- runKatipT ?log_env $ solve opts prob
+  V.length (eventInfo sol) @?= 1
+  let mx = solutionMatrix sol
+  mx ! (rows mx - 1) ! 1 @?= 0.0
 
 ----------------------------------------------------------------------
 --                           ODE problems
