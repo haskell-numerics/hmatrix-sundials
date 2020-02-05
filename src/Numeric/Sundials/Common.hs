@@ -127,6 +127,7 @@ data CConsts = CConsts
   }
 
 data Solver = CVode | ARKode
+  deriving Show
 
 class Method method where
   methodToInt :: method -> CInt

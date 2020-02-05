@@ -1,20 +1,33 @@
 {-# LANGUAGE RecordWildCards, ScopedTypeVariables, OverloadedStrings,
              ViewPatterns, ImplicitParams, OverloadedLists, RankNTypes,
-             ExistentialQuantification, LambdaCase, NumDecimals, NamedFieldPuns #-}
+             ExistentialQuantification, LambdaCase, NumDecimals, NamedFieldPuns,
+             TypeApplications, DeriveGeneric, StandaloneDeriving, FlexibleInstances #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
-import Prelude hiding (quot)
+import Prelude hiding (quot, showList)
 
 import Test.Tasty
+import Test.Tasty.Golden
+import Test.Tasty.Golden.Advanced
 import Test.Tasty.HUnit
 
 import Numeric.Sundials
 
-import Numeric.LinearAlgebra as L
+import Numeric.LinearAlgebra as L hiding ((<.>), (<>))
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector as V
+import qualified Data.ByteString.Lazy.Char8 as LBS8
+import Data.List
+import Data.Maybe
+import Data.Foldable
+import Control.Monad
 import Katip
 import System.IO
+import System.FilePath
 import Text.Printf (printf)
+import Data.Aeson
+import Data.Aeson.Encode.Pretty
+import GHC.Generics
 
 ----------------------------------------------------------------------
 --                            Helpers
@@ -65,6 +78,100 @@ fmod arg1 arg2 =
   in
     arg1 - quot_floor_times_divisor
 
+-- | Show list without brackets, so that it's more suitable for file names
+showList :: Show a => [a] -> String
+showList = intercalate "," . map show
+
+-- derive JSON instances for all sundials types for testing
+deriving instance Generic SundialsSolution
+instance ToJSON SundialsSolution
+instance FromJSON SundialsSolution
+
+deriving instance Generic SundialsDiagnostics
+instance ToJSON SundialsDiagnostics
+instance FromJSON SundialsDiagnostics
+
+deriving instance Generic ErrorDiagnostics
+instance ToJSON ErrorDiagnostics
+instance FromJSON ErrorDiagnostics
+
+instance ToJSON EventInfo
+instance FromJSON EventInfo
+
+instance ToJSON CrossingDirection
+instance FromJSON CrossingDirection
+
+instance ToJSON (Matrix Double) where
+  toJSON = toJSON . toLists
+instance FromJSON (Matrix Double) where
+  parseJSON = fmap fromLists . parseJSON
+
+compareSolutions
+  :: Bool -- ^ same method?
+  -> SundialsSolution -- ^ expected
+  -> SundialsSolution -- ^ got
+  -> Maybe String -- ^ maybe error message
+compareSolutions same_method a b = asum @[]
+  [ do
+      guard . not $ VS.length (actualTimeGrid a) == VS.length (actualTimeGrid b)
+      return "Different length of actualTimeGrid"
+  , do
+      guard . not $ norm_Inf (actualTimeGrid a - actualTimeGrid b) < precision
+      return "Different values of actualTimeGrid"
+  , do
+      guard . not $ size (solutionMatrix a) == size (solutionMatrix b)
+      return "Different sizes of the solutionMatrix"
+  , do
+      guard . not $ norm_Inf (solutionMatrix a - solutionMatrix b) < precision
+      return "Different values in the solutionMatrix"
+  , do
+      guard . not $ V.map rootDirection (eventInfo a) == V.map rootDirection (eventInfo b)
+      return "Different rootDirections"
+  , do
+      guard . not $ V.map eventIndex (eventInfo a) == V.map eventIndex (eventInfo b)
+      return "Different eventIndices"
+  , do
+      guard . not $ norm_Inf ((V.convert $ V.map eventTime (eventInfo a) :: VS.Vector Double) - (V.convert $ V.map eventTime (eventInfo b))) < precision
+      return "Different eventTimes"
+  ]
+  where
+    precision = if same_method then 1e-10 else 1e-1
+
+odeGoldenTest
+  :: forall method . (Method method, Show method)
+  => Bool -- ^ compare between methods? (via a canonical golden file)
+  -> ODEOpts method -- ^ ode options (affect the golden file name)
+  -> String -- ^ name (of both the test and the file)
+  -> IO (Either ErrorDiagnostics SundialsSolution)
+  -> TestTree
+odeGoldenTest do_canonical opts name action =
+  let
+    method_dir = show (methodSolver @method) </> show (odeMethod opts)
+  in
+    testGroup name $ do
+      (dir, type_, same_method) <-
+        [(method_dir, "Method-specific", True)] ++
+        [("canonical", "Canonical", False) | do_canonical ]
+      let
+        golden_path = ("tests/golden" </> dir </> name <.> "json")
+        cmp expected got = return $
+          case (expected, got) of
+            (Right{},Left{}) -> Just "expected success, got error"
+            (Left{},Right{}) -> Just "expected error, got success"
+            (Left a,Left b) ->
+              if errorCode a == errorCode b
+                then Nothing
+                else Just "got a different error"
+            (Right a,Right b) -> compareSolutions same_method a b
+        upd val = createDirectoriesAndWriteFile golden_path
+          (LBS8.toStrict $ encodePretty' defConfig {confCompare = compare} val)
+      return $ goldenTest
+        type_ -- test name
+        (fromJust <$> decodeFileStrict golden_path) -- get the golden value
+        action -- get the tested value
+        cmp
+        upd
+
 ----------------------------------------------------------------------
 --                             The tests
 ----------------------------------------------------------------------
@@ -81,26 +188,17 @@ main = do
       [ testGroup (show method) $
           let opts = defaultOpts method in
           [ withVsWithoutJacobian opts
+          , stiffishTest opts
           , eventTests opts
           , noErrorTests opts
           , discontinuousRhsTest opts
           , modulusEventTest opts
           , cascadingEventsTest opts
+          , simultaneousEventsTest opts
           ]
       | method <- methods
       ]
     | OdeSolver solver_name methods <- availableSolvers
-    ] ++
-    [ testGroup "Method comparison"
-      -- FIXME rewrite this to be O(n) instead of O(n^2)
-      -- right now, this only compares between different solvers
-      [ testGroup (show method1 ++ " vs " ++ show method2) $ compareMethodsTests
-          (defaultOpts method1)
-          (defaultOpts method2)
-      | (OdeSolver _ methods1, OdeSolver _ methods2) <- allPairs availableSolvers
-      , method1 <- methods1
-      , method2 <- methods2
-      ]
     ]
 
 noErrorTests opts = testGroup "Absence of error"
@@ -112,6 +210,9 @@ noErrorTests opts = testGroup "Absence of error"
   | (name, prob) <- [ empty ]
   ]
 
+stiffishTest opts = odeGoldenTest True opts "Stiffish" $
+  runKatipT ?log_env $ solve opts stiffish
+
 withVsWithoutJacobian opts = testGroup "With vs without jacobian"
   [ testCase name $ do
       Right (solutionMatrix -> solJac)   <- runKatipT ?log_env $ solve opts prob
@@ -120,27 +221,12 @@ withVsWithoutJacobian opts = testGroup "With vs without jacobian"
   | (name, prob) <- [ brusselator, robertson ]
   ]
 
-compareMethodsTests opts1 opts2 =
-  [ testCase name $ do
-      Right (solutionMatrix -> sol1) <- runKatipT ?log_env $ solve opts1 prob
-      Right (solutionMatrix -> sol2) <- runKatipT ?log_env $ solve opts2 prob
-      let diff = maximum $ map abs $
-                 zipWith (-) ((toLists $ tr sol1)!!0) ((toLists $ tr sol2)!!0)
-      checkDiscrepancy 1e-5 diff
-  | (name, prob) <- [ stiffish ]
-  ]
-
-
 eventTests opts = testGroup "Events"
-  [ testCase "Exponential" $ do
-      Right (eventInfo -> events) <- runKatipT ?log_env $ solve opts exponential
-      length events @?= 1
-      checkDiscrepancy 1e-4 (abs (eventTime (events V.! 0) - log 1.1))
-      rootDirection (events V.! 0) @?= Upwards
-      eventIndex (events V.! 0) @?= 0
-  , testCase "Robertson" $ do
+  [ odeGoldenTest True opts "Exponential" $
+      runKatipT ?log_env $ solve opts exponential
+  , odeGoldenTest True opts "Robertson" $ do
       let upd _ _ = vector [1.0, 0.0, 0.0]
-      Right (eventInfo -> events) <- runKatipT ?log_env $ solve opts
+      runKatipT ?log_env $ solve opts
         (snd robertson)
           { odeEvents =
             [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
@@ -159,80 +245,86 @@ eventTests opts = testGroup "Events"
           , odeMaxEvents = 100
           , odeSolTimes = [0,100]
           }
-      length events @?= 100
-  , testCase "Bounded sine" $ do
-      Right (eventInfo -> events) <- runKatipT ?log_env $ solve opts boundedSine
-      length events @?= 3
-      V.map rootDirection events @?= [Upwards, Downwards, Upwards]
-      V.map eventIndex events @?= [0, 1, 0]
-      V.forM_ (V.zip (V.map eventTime events) [1.119766,3.359295,5.598820]) $ \(et_got, et_exp) ->
-        checkDiscrepancy 1e-4 (abs (et_exp - et_got))
+  , odeGoldenTest True opts "Bounded_sine" $
+      runKatipT ?log_env $ solve opts boundedSine
   ]
 
-discontinuousRhsTest opts = testCaseInfo "Discontinuous derivative" $ do
-  Right r <- runKatipT ?log_env $ solve opts discontinuousRHS
-  V.length (eventInfo r) @?= 0
-  let mx = solutionMatrix r
-  rows mx @?= 2 -- because the auxiliary events are not recorded
-  let y1 = mx ! 1 ! 0
-      diff = abs (y1 - 1)
-  checkDiscrepancy 0.1 (abs (y1 - 1))
-  return $ printf "%.2e" diff
+discontinuousRhsTest opts = odeGoldenTest True opts "Discontinuous_derivative" $
+  runKatipT ?log_env $ solve opts discontinuousRHS
 
 modulusEventTest opts0 = localOption (mkTimeout 1e5) $ testGroup "Modulus event"
-  [ testGroup (if record_event then "Recording events" else "Not recording events")
-    [ testCaseInfo ("Init step is " ++ show initStep) $ do
-        let opts = opts0 { initStep }
-        Right r <- runKatipT ?log_env $ solve opts (modulusEvent record_event)
-        V.length (eventInfo r) @?=
-          (if record_event then 10 else 0)
-        let mx = solutionMatrix r
-        rows mx @?=
-          (if record_event then 22 else 2) -- because the auxiliary events are not recorded
-        let y1 = mx ! 1 ! 0
-        -- We don't check the answer here; all we care about is not failing
-        -- or entering an infinite loop (hence the timeout).
-        -- (Side note: the timeout doesn't seem to trigger when the infinite
+  [ odeGoldenTest False opts
+      (printf "Modulus_recordEvent=%s_initStep=%s"
+        (show record_event)
+        initStepStr) $
+        runKatipT ?log_env $ solve opts (modulusEvent record_event)
+        -- the timeout doesn't seem to trigger when the infinite
         -- loop actually happens. I'm not sure why, since we're making safe
         -- calls, which should be interruptible? -fno-omit-yields doesn't
-        -- seem to help either. Maybe worth investigating.)
-        -- When step size is big, the result will not be accurate.
-        -- However, we display it just FYI:
-        return $ printf "Result: %.3f (expected 5.0)" y1
-    | initStep <- [Nothing, Just 1, Just (1 - 2**(-53))]
-    ]
-  | record_event <- [False, True]
+        -- seem to help either. Maybe worth investigating.
+  | (initStep, initStepStr::String) <-
+      [(Nothing, "Nothing")
+      ,(Just 1, "1")
+      ,(Just (1 - 2**(-53)), "1-eps")]
+  , record_event <- [False, True]
+  , let opts = opts0 { initStep }
   ]
 
-cascadingEventsTest opts = testCase "Cascading events are not triggered by Sundials" $ do
-  let prob = OdeProblem
-        { odeRhs = odeRhsPure $ \_ _ -> [1, 0]
-        , odeJacobian = Nothing
-        , odeInitCond = [0, 0]
-        , odeEvents = events
-        , odeMaxEvents = 100
-        , odeSolTimes = [0,10]
-        , odeTolerances = defaultTolerances
-        }
-      events =
-        [ EventSpec { eventCondition = \_t y -> y ! 0 - 5
-                    , eventUpdate = \_ y -> [7, y ! 1]
-                    , eventDirection = AnyDirection
-                    , eventStopSolver = False
-                    , eventRecord = True
-                    }
-        , EventSpec { eventCondition = \_t y -> y ! 0 - 6
-                    , eventUpdate = \_ y -> [y ! 0, 1]
-                    , eventDirection = AnyDirection
-                    , eventStopSolver = False
-                    , eventRecord = True
-                    }
-        ]
+cascadingEventsTest opts = odeGoldenTest True opts "Cascading_events" $ do
+  runKatipT ?log_env $ solve opts prob
+  where
+    prob = OdeProblem
+      { odeRhs = odeRhsPure $ \_ _ -> [1, 0]
+      , odeJacobian = Nothing
+      , odeInitCond = [0, 0]
+      , odeEvents = events
+      , odeMaxEvents = 100
+      , odeSolTimes = [0,10]
+      , odeTolerances = defaultTolerances
+      }
+    events =
+      [ EventSpec { eventCondition = \_t y -> y ! 0 - 5
+                  , eventUpdate = \_ y -> [7, y ! 1]
+                  , eventDirection = AnyDirection
+                  , eventStopSolver = False
+                  , eventRecord = True
+                  }
+      , EventSpec { eventCondition = \_t y -> y ! 0 - 6
+                  , eventUpdate = \_ y -> [y ! 0, 1]
+                  , eventDirection = AnyDirection
+                  , eventStopSolver = False
+                  , eventRecord = True
+                  }
+      ]
 
-  Right sol <- runKatipT ?log_env $ solve opts prob
-  V.length (eventInfo sol) @?= 1
-  let mx = solutionMatrix sol
-  mx ! (rows mx - 1) ! 1 @?= 0.0
+simultaneousEventsTest opts = testGroup "Simultaneous events"
+  [ odeGoldenTest True opts (printf "Simultaneous_events/maxEvents=%d_eventRecord=%s_stopSolver=%s"
+    maxEvents
+    (showList record)
+    (showList stopSolver)) $ do
+      let prob = OdeProblem
+            { odeRhs = odeRhsPure $ \_ _ -> [0,0]
+            , odeJacobian = Nothing
+            , odeInitCond = [0,0]
+            , odeEvents = events
+            , odeMaxEvents = maxEvents
+            , odeSolTimes = [0,10]
+            , odeTolerances = defaultTolerances
+            }
+          event i =
+            EventSpec
+              { eventCondition = \t _ -> t - 5
+              , eventUpdate = \_ y -> y VS.// [(i,1)]
+              , eventDirection = AnyDirection
+              , eventStopSolver = stopSolver !! i
+              , eventRecord = record !! i
+              }
+          events = V.map event [0..1]
+      runKatipT ?log_env $ solve opts prob
+  | maxEvents <- [0..3]
+  , record <- replicateM 2 [False,True]
+  , stopSolver <- replicateM 2 [False,True]
+  ]
 
 ----------------------------------------------------------------------
 --                           ODE problems
@@ -319,7 +411,7 @@ empty = (,) "Empty system" $ OdeProblem
   , odeTolerances = defaultTolerances
   }
 
-stiffish = (,) "Stiffish" $ OdeProblem
+stiffish = OdeProblem
   { odeRhs = odeRhsPure $ \t ((VS.! 0) -> u) -> [ lamda * u + 1.0 / (1.0 + t * t) - lamda * atan t ]
   , odeJacobian = Nothing
   , odeInitCond = [0.0]
