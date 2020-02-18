@@ -16,7 +16,7 @@
             "odeGetNumRhsEvals_fi": 23,
             "odeGetNumStepAttempts": 4,
             "odeGetNumSteps": 4,
-            "odeMaxEventsReached": false
+            "odeMaxEventsReached": true
         },
         "eventInfo": [
             {
@@ -36,7 +36,7 @@
             ],
             [
                 1,
-                1
+                0
             ]
         ]
     }

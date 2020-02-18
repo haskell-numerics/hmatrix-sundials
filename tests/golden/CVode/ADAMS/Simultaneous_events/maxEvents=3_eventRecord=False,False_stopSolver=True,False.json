@@ -1,8 +1,7 @@
 {
     "Right": {
         "actualTimeGrid": [
-            0,
-            10
+            0
         ],
         "diagnostics": {
             "dlsGetNumJacEvals": 0,
@@ -22,10 +21,6 @@
             [
                 0,
                 0
-            ],
-            [
-                1,
-                1
             ]
         ]
     }

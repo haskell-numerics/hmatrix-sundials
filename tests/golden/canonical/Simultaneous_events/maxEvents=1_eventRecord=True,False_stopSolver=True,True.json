@@ -2,6 +2,7 @@
     "Right": {
         "actualTimeGrid": [
             0,
+            5,
             5
         ],
         "diagnostics": {
@@ -15,7 +16,7 @@
             "odeGetNumRhsEvals_fi": 0,
             "odeGetNumStepAttempts": 0,
             "odeGetNumSteps": 3,
-            "odeMaxEventsReached": false
+            "odeMaxEventsReached": true
         },
         "eventInfo": [
             {
@@ -31,6 +32,10 @@
             ],
             [
                 0,
+                0
+            ],
+            [
+                1,
                 0
             ]
         ]

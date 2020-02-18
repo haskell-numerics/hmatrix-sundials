@@ -1,8 +1,7 @@
 {
     "Right": {
         "actualTimeGrid": [
-            0,
-            5
+            0
         ],
         "diagnostics": {
             "dlsGetNumJacEvals": 0,
@@ -19,10 +18,6 @@
         },
         "eventInfo": [],
         "solutionMatrix": [
-            [
-                0,
-                0
-            ],
             [
                 0,
                 0

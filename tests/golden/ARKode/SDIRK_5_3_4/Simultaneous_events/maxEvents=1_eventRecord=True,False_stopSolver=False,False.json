@@ -2,6 +2,7 @@
     "Right": {
         "actualTimeGrid": [
             0,
+            5,
             5
         ],
         "diagnostics": {
@@ -31,6 +32,10 @@
             ],
             [
                 0,
+                0
+            ],
+            [
+                1,
                 0
             ]
         ]
