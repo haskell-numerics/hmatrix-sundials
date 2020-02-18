@@ -1,0 +1,161 @@
+{
+    "Right": {
+        "actualTimeGrid": [
+            0,
+            1,
+            1,
+            2,
+            2,
+            3,
+            3,
+            4,
+            4,
+            5,
+            5,
+            6,
+            6,
+            7,
+            7,
+            8,
+            8,
+            9,
+            9,
+            10,
+            10,
+            10
+        ],
+        "diagnostics": {
+            "dlsGetNumJacEvals": 0,
+            "dlsGetNumRhsEvals": 0,
+            "odeGetNumErrTestFails": 1,
+            "odeGetNumLinSolvSetups": 2,
+            "odeGetNumNonlinSolvConvFails": 0,
+            "odeGetNumNonlinSolvIters": 20,
+            "odeGetNumRhsEvals_fe": 0,
+            "odeGetNumRhsEvals_fi": 31,
+            "odeGetNumStepAttempts": 2,
+            "odeGetNumSteps": 1,
+            "odeMaxEventsReached": false
+        },
+        "eventInfo": [
+            {
+                "eventIndex": 0,
+                "eventTime": 1,
+                "rootDirection": "Downwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 2,
+                "rootDirection": "Upwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 3,
+                "rootDirection": "Downwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 4,
+                "rootDirection": "Upwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 5,
+                "rootDirection": "Downwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 6,
+                "rootDirection": "Upwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 7,
+                "rootDirection": "Downwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 8,
+                "rootDirection": "Upwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 9,
+                "rootDirection": "Downwards"
+            },
+            {
+                "eventIndex": 0,
+                "eventTime": 10,
+                "rootDirection": "Upwards"
+            }
+        ],
+        "solutionMatrix": [
+            [
+                0
+            ],
+            [
+                0.48295485499772156
+            ],
+            [
+                0.48295485499772156
+            ],
+            [
+                0.965909709995444
+            ],
+            [
+                0.965909709995444
+            ],
+            [
+                1.4488645649931673
+            ],
+            [
+                1.4488645649931673
+            ],
+            [
+                1.9318194199908905
+            ],
+            [
+                1.9318194199908905
+            ],
+            [
+                2.4147742749886123
+            ],
+            [
+                2.4147742749886123
+            ],
+            [
+                2.897729129986333
+            ],
+            [
+                2.897729129986333
+            ],
+            [
+                3.3806839849840533
+            ],
+            [
+                3.3806839849840533
+            ],
+            [
+                3.8636388399817747
+            ],
+            [
+                3.8636388399817747
+            ],
+            [
+                4.346593694979496
+            ],
+            [
+                4.346593694979496
+            ],
+            [
+                4.829548549977216
+            ],
+            [
+                4.829548549977216
+            ],
+            [
+                4.829548549977216
+            ]
+        ]
+    }
+}
