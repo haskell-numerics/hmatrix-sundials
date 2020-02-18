@@ -281,23 +281,34 @@ solveC CConsts{..} CVars{..} report_error =
         return 1;
       }
 
-      /* Are we interested in this event?
-         If not, continue without any observable side-effects.
-      */
-      int good_event = 0;
+      /* How many events triggered? */
+      int n_events_triggered = 0;
+      /* Should we stop the solver? */
       int stop_solver = 0;
-      int record_event;
+      /* Should we record this set of events in the output matrix? */
+      int record_events = 0;
       flag = ARKStepGetRootInfo(arkode_mem, ($vec-ptr:(int *c_root_info)));
       if (check_flag(&flag, "ARKStepGetRootInfo", 1, report_error)) return 1;
       for (i = 0; i < $(int c_n_event_specs); i++) {
         int ev = ($vec-ptr:(int *c_root_info))[i];
         int req_dir = ($vec-ptr:(const int *c_requested_event_direction))[i];
         if (ev != 0 && ev * req_dir >= 0) {
-          good_event = 1;
-          record_event = ($vec-ptr:(int *c_event_record))[i];
-          stop_solver = ($vec-ptr:(int *c_event_stops_solver))[i];
+          int record_this_event = ($vec-ptr:(int *c_event_record))[i];
+          n_events_triggered++;
+          record_events = record_events || record_this_event;
+          /* If we encounter an event that stops the solver, we still
+             handle all the simultaneous events instead of stopping
+             immediately. That's because stopping the solver is used in two
+             different scenarios:
 
-          if (record_event) {
+             1. Stopping for good
+             2. Restarting the solver
+
+             In the second case, we'll want all simultaneous events handled
+             because we won't have another chance to do that. */
+          stop_solver = stop_solver || ($vec-ptr:(int *c_event_stops_solver))[i];
+
+          if (record_this_event) {
             ($vec-ptr:(int *c_actual_event_direction))[event_ind] = ev;
             ($vec-ptr:(int *c_event_index))[event_ind] = i;
             ($vec-ptr:(double *c_event_time))[event_ind] = t;
@@ -306,28 +317,36 @@ solveC CConsts{..} CVars{..} report_error =
 
           /* Update the state with the supplied function */
           $fun:(int (* c_apply_event) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
+
+          if (event_ind >= $(int c_max_events)) {
+            /* We collected the requested number of events. Stop the solver.
+               Do not goto finish here because we need to add the row after the update.
+               However, break from the loop because we don't have the space for any more events. */
+            ($vec-ptr:(sunindextype *c_diagnostics))[10] = 1;
+            stop_solver = 1;
+            break;
+          }
         }
       }
 
-      if (good_event) {
-        if (record_event) {
-          ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
-          for (j = 0; j < c_dim; j++) {
-            ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
-          }
-          output_ind++;
-          ($vec-ptr:(int *c_n_rows))[0] = output_ind;
+      if (record_events) {
+        ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
+        for (j = 0; j < c_dim; j++) {
+          ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
         }
+        output_ind++;
+        ($vec-ptr:(int *c_n_rows))[0] = output_ind;
+      } else {
+        /* Remove the saved row */
+        output_ind--;
+        ($vec-ptr:(int *c_n_rows))[0] = output_ind;
+      }
+      if (stop_solver) {
+        goto finish;
+      }
 
-        if (stop_solver) {
-          break;
-        }
-        if (event_ind >= $(int c_max_events)) {
-          /* We collected the requested number of events. Stop the solver. */
-          ($vec-ptr:(sunindextype *c_diagnostics))[10] = 1;
-          break;
-        }
-
+      t_start = t;
+      if (n_events_triggered > 0) {
         /* Reinitialize */
         t_start = t;
         if ($(int c_method) < MIN_DIRK_NUM) {
@@ -337,17 +356,14 @@ solveC CConsts{..} CVars{..} report_error =
         }
         if (check_flag(&flag, "ARKStepReInit", 1, report_error)) return(1);
       }
-      if (!good_event || !record_event) {
-        /* Since this is not a wanted event, it shouldn't get a row */
-        output_ind--;
-        ($vec-ptr:(int *c_n_rows))[0] = output_ind;
-      }
     }
     else {
       if (++input_ind >= $(int c_n_sol_times))
-        break;
+        goto finish;
     }
   }
+
+  finish:
 
   /* The number of actual roots we found */
   ($vec-ptr:(int *c_n_events))[0] = event_ind;
