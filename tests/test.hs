@@ -63,12 +63,6 @@ checkDiscrepancy eps diff = assertBool msg $ diff <= eps
     msg = printf "Difference too large: %.2e > %.2e"
       diff eps
 
--- | Enumerate all distinct unordered pairs of distinct elements
-allPairs :: [a] -> [(a,a)]
-allPairs = \case
-  [] -> []
-  x : xs -> map ((,) x) xs ++ allPairs xs
-
 fmod :: RealFrac a => a -> a -> a
 fmod arg1 arg2 =
   let
