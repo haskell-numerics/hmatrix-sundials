@@ -1,8 +1,4 @@
 extra-deps:
-- plots-0.1.0.2
-- git: https://github.com/haskell/vector.git
-  commit: cc06420eaa597b85ffd8ded9f82aac1a3fc02c18
-- git: git@github.com:feuerbach/tasty-golden.git
-  commit: 7416b2268c5b0d459c5ce81a43c80ecc09d05a9f
-resolver: nightly-2019-06-12
+- tasty-golden-2.3.3
+resolver: nightly-2020-01-30
 allow-newer: true

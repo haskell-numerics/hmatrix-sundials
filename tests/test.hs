@@ -16,7 +16,6 @@ import Numeric.Sundials
 import Numeric.LinearAlgebra as L hiding ((<.>), (<>))
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector as V
-import qualified Data.ByteString.Lazy.Char8 as LBS8
 import Data.List
 import Data.Maybe
 import Data.Foldable
@@ -158,7 +157,7 @@ odeGoldenTest do_canonical opts name action =
                 else Just "got a different error"
             (Right a,Right b) -> compareSolutions same_method a b
         upd val = createDirectoriesAndWriteFile golden_path
-          (LBS8.toStrict $ encodePretty' defConfig {confCompare = compare} val)
+          (encodePretty' defConfig {confCompare = compare} val)
       return $ goldenTest
         type_ -- test name
         (fromJust <$> decodeFileStrict golden_path) -- get the golden value
