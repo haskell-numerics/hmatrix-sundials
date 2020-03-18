@@ -48,6 +48,7 @@ solveC CConsts{..} CVars{..} report_error =
   /* general problem variables */
 
   int flag;                  /* reusable error-checking flag                 */
+  int retval = CV_SUCCESS;
 
   int i, j;                  /* reusable loop indices                        */
   N_Vector y = NULL;         /* empty vector for storing solution            */
@@ -175,15 +176,22 @@ solveC CConsts{..} CVars{..} report_error =
 
   while (1) {
     double ti = ($vec-ptr:(double *c_sol_time))[input_ind];
-    flag = CVode(cvode_mem, ti, y, &t, CV_NORMAL); /* call integrator */
+    double next_time_event = ($fun:(double (*c_next_time_event)()))();
+    if (next_time_event <= t_start) {
+      report_error(0, "hmatrix-sundials", "solveC", "time-based event is in the past", NULL);
+      retval = 1;
+      goto finish;
+    }
+    double next_stop_time = fmin(ti, next_time_event);
+    flag = CVode(cvode_mem, next_stop_time, y, &t, CV_NORMAL); /* call integrator */
     if (flag == CV_TOO_CLOSE) {
       /* See Note [CV_TOO_CLOSE]
          No solving was required; just set the time t manually and continue
          as if solving succeeded. */
-      t = ti;
+      t = next_stop_time;
     }
     else
-    if (t == ti && t == t_start && flag == CV_ROOT_RETURN) {
+    if (t == next_stop_time && t == t_start && flag == CV_ROOT_RETURN) {
       /* See Note [CV_TOO_CLOSE]
          Probably the initial step size was set, and that's why we didn't
          get CV_TOO_CLOSE.
@@ -211,6 +219,8 @@ solveC CConsts{..} CVars{..} report_error =
       N_VDestroy(weights);
       return 1;
     }
+    int root_based_event = flag == CV_ROOT_RETURN;
+    int time_based_event = t == next_time_event;
 
     /* Store the results for Haskell */
     ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
@@ -220,7 +230,7 @@ solveC CConsts{..} CVars{..} report_error =
     output_ind++;
     ($vec-ptr:(int *c_n_rows))[0] = output_ind;
 
-    if (flag == CV_ROOT_RETURN) {
+    if (root_based_event || time_based_event) {
       if (event_ind >= $(int c_max_events)) {
         /* We reached the maximum number of events.
            Either the maximum number of events is set to 0,
@@ -232,16 +242,18 @@ solveC CConsts{..} CVars{..} report_error =
       /* How many events triggered? */
       int n_events_triggered = 0;
       int *c_root_info = ($vec-ptr:(int *c_root_info));
-      flag = CVodeGetRootInfo(cvode_mem, c_root_info);
-      if (check_flag(&flag, "CVodeGetRootInfo", 1, report_error)) return 1;
-      for (i = 0; i < $(int c_n_event_specs); i++) {
-        int ev = c_root_info[i];
-        int req_dir = ($vec-ptr:(const int *c_requested_event_direction))[i];
-        if (ev != 0 && ev * req_dir >= 0) {
-          /* After the above call to CVodeGetRootInfo, c_root_info has an
-          entry per EventSpec. Here we reuse the same array but convert it
-          into one that contains indices of triggered events. */
-          c_root_info[n_events_triggered++] = i;
+      if (root_based_event) {
+        flag = CVodeGetRootInfo(cvode_mem, c_root_info);
+        if (check_flag(&flag, "CVodeGetRootInfo", 1, report_error)) return 1;
+        for (i = 0; i < $(int c_n_event_specs); i++) {
+          int ev = c_root_info[i];
+          int req_dir = ($vec-ptr:(const int *c_requested_event_direction))[i];
+          if (ev != 0 && ev * req_dir >= 0) {
+            /* After the above call to CVodeGetRootInfo, c_root_info has an
+            entry per EventSpec. Here we reuse the same array but convert it
+            into one that contains indices of triggered events. */
+            c_root_info[n_events_triggered++] = i;
+          }
         }
       }
 
@@ -249,7 +261,7 @@ solveC CConsts{..} CVars{..} report_error =
       int stop_solver = 0;
       /* Should we record the state before/after the event in the output matrix? */
       int record_events = 0;
-      if (n_events_triggered > 0) {
+      if (n_events_triggered > 0 || time_based_event) {
         /* Update the state with the supplied function */
         $fun:(int (* c_apply_event) (int, int*, double, SunVector y[], SunVector z[], int*, int*))(n_events_triggered, c_root_info, t, y, y, &stop_solver, &record_events);
       }
@@ -276,7 +288,7 @@ solveC CConsts{..} CVars{..} report_error =
       }
 
       t_start = t;
-      if (n_events_triggered > 0) {
+      if (n_events_triggered > 0 || time_based_event) {
         flag = CVodeReInit(cvode_mem, t, y);
         if (check_flag(&flag, "CVodeReInit", 1, report_error)) return(1);
       }

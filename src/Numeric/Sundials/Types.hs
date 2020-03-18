@@ -15,6 +15,7 @@ module Numeric.Sundials.Types
   , SundialsSolution(..)
   , CrossingDirection(..)
   , EventSpec(..)
+  , TimeEventSpec(..)
   , SunVector(..)
   , SunIndexType
   , SunRealType
@@ -55,7 +56,9 @@ data EventHandlerResult = EventHandlerResult
 type EventHandler
   =  Double -- ^ time
   -> VS.Vector Double -- ^ values of the variables
-  -> VS.Vector Int -- ^ vector of triggered event indices
+  -> VS.Vector Int
+    -- ^ Vector of triggered event indices.
+    -- If the vector is empty, this is a time-based event.
   -> IO EventHandlerResult
 
 data OdeProblem = OdeProblem
@@ -67,6 +70,7 @@ data OdeProblem = OdeProblem
     -- allocate enough space to store the events. If more events occur, an
     -- error is returned.
   , odeEventHandler :: EventHandler -- ^ The event handler.
+  , odeTimeBasedEvents :: TimeEventSpec
   , odeRhs :: OdeRhs
     -- ^ The right-hand side of the system: either a Haskell function or
     -- a pointer to a compiled function.
@@ -176,6 +180,20 @@ data ErrorDiagnostics = ErrorDiagnostics
 -- | The direction in which a function should cross the x axis
 data CrossingDirection = Upwards | Downwards | AnyDirection
   deriving (Generic, Eq, Show, NFData)
+
+-- | A time-based event, implemented as an action that returns the time of
+-- the next time-based event.
+--
+-- If there's an additional condition attached to a time-based event, it
+-- should be verified in the event handler.
+--
+-- The action is supposed to be stateful, and the state of the action
+-- should be updated by the event handler so that after a given time-based
+-- event is handled, the action starts returning the time of the next
+-- unhandled time-based event.
+--
+-- If there is no next time-based event, the action should return +Inf.
+newtype TimeEventSpec = TimeEventSpec (IO Double)
 
 data EventSpec = EventSpec
   { eventCondition  :: Double -> VS.Vector Double -> Double

@@ -19,6 +19,7 @@ import qualified Data.Vector as V
 import Data.List
 import Data.Maybe
 import Data.Foldable
+import Data.IORef
 import Control.Monad
 import Control.Exception
 import Katip
@@ -39,6 +40,7 @@ emptyOdeProblem = OdeProblem
       , odeJacobian = Nothing
       , odeInitCond = error "emptyOdeProblem: no odeInitCond provided"
       , odeEvents = mempty
+      , odeTimeBasedEvents = TimeEventSpec $ return $ 1.0 / 0.0
       , odeEventHandler = nilEventHandler
       , odeMaxEvents = 100
       , odeSolTimes = error "emptyOdeProblem: no odeSolTimes provided"
@@ -172,13 +174,58 @@ odeGoldenTest do_canonical opts name action =
 mkEventHandler
   :: V.Vector (Double -> VS.Vector Double -> VS.Vector Double)
   -> V.Vector Bool -- ^ stop the solver?
-  -> V.Vector Bool
+  -> V.Vector Bool -- ^ record the event?
   -> EventHandler
-mkEventHandler handlers stop_solver_vec record_event_vec t y0 evs = return $ EventHandlerResult
-  { eventStopSolver = or . map (stop_solver_vec V.!) $ VS.toList evs
-  , eventRecord = or . map (record_event_vec V.!) $ VS.toList evs
-  , eventNewState = foldl' (\y hndl -> hndl t y) y0 . map (handlers V.!) $ VS.toList evs
-  }
+mkEventHandler handlers stop_solver_vec record_event_vec t y0 evs
+  | VS.null evs = error "mkEventHandler: got a time-based event"
+  | otherwise = return EventHandlerResult
+      { eventStopSolver = or . map (stop_solver_vec V.!) $ VS.toList evs
+      , eventRecord = or . map (record_event_vec V.!) $ VS.toList evs
+      , eventNewState = foldl' (\y hndl -> hndl t y) y0 . map (handlers V.!) $ VS.toList evs
+      }
+
+mkTimeEvents
+  :: [(Double, Double -> VS.Vector Double -> VS.Vector Double, Bool, Bool)] -- ^ time-based events (time, update, stop?, record?)
+  -> IO (TimeEventSpec, EventHandler)
+mkTimeEvents time_based_events = do
+  time_based_events_ref <- newIORef time_based_events
+  let handler :: EventHandler
+      handler t y0 evs =
+        if VS.null evs
+          then do
+            time_evs <- readIORef time_based_events_ref
+            case time_evs of
+              [] -> throwIO $ ErrorCall "Unexpected time-based event"
+              (t1, update, eventStopSolver, eventRecord) : rest ->
+                if t == t1
+                  then do
+                    writeIORef time_based_events_ref rest
+                    return EventHandlerResult
+                      { eventStopSolver
+                      , eventRecord
+                      , eventNewState = update t y0
+                      }
+                  else throwIO $ ErrorCall "Wrong event time"
+          else error "mkTimeEvents: got root-based events"
+
+      event_spec :: TimeEventSpec
+      event_spec = TimeEventSpec $ do
+        time_evs <- readIORef time_based_events_ref
+        return $ case time_evs of
+          [] -> 1.0/0.0 -- +Inf
+          (t,_,_,_) : _ -> t
+
+
+  return (event_spec, handler)
+
+combineEventHandlers
+  :: EventHandler -- ^ root-based event handler
+  -> EventHandler -- ^ time-based event handler
+  -> EventHandler -- ^ combined handler
+combineEventHandlers rh th t y0 evs =
+  if VS.null evs
+    then th t y0 evs
+    else rh t y0 evs
 
 nilEventHandler :: EventHandler
 nilEventHandler _ _ _ = throwIO $ ErrorCall "nilEventHandler"
@@ -206,6 +253,7 @@ main = do
           , modulusEventTest opts
           , cascadingEventsTest opts
           , simultaneousEventsTest opts
+          , timeBasedEventTest opts
           ]
       | method <- methods
       ]
@@ -333,6 +381,43 @@ simultaneousEventsTest opts = testGroup "Simultaneous events"
   , record <- replicateM 2 [False,True]
   , stopSolver <- replicateM 2 [False,True]
   ]
+
+-- Four events:
+--
+-- 1. A time-based event at t = 1.0; recorded
+--
+-- 2. A time-based event at t = 2.0; not recorded and no update
+--
+-- 3. A root-based event at t = 3.0
+--
+-- 4. A time-based event at t = 4.0; stops the solver
+timeBasedEventTest opts = odeGoldenTest True opts "Time-based events" $ do
+  let
+    upd :: Double -> Double -> Vector Double -> Vector Double
+    upd x _t y = y VS.// [(1, x)]
+  (time_ev_spec, time_ev_handler) <- mkTimeEvents
+    [ (1.0, upd 5, False, True)
+    , (2.0, const id, False, False)
+    , (4.0, upd 8, True, True)
+    ]
+  let prob = emptyOdeProblem
+        { odeRhs = odeRhsPure $ \_ _ -> [1, 0]
+        , odeInitCond = [0, 0]
+        , odeEvents =
+            [ EventSpec
+              { eventCondition = \t y -> t/2 + y ! 0 - 4.5
+              , eventDirection = Upwards
+              }
+            ]
+        , odeTimeBasedEvents = time_ev_spec
+        , odeEventHandler = combineEventHandlers
+            (mkEventHandler [upd 13] [False] [True])
+            time_ev_handler
+        , odeMaxEvents = 100
+        , odeSolTimes = [0, 10]
+        }
+  runKatipT ?log_env $ solve opts prob
+
 
 ----------------------------------------------------------------------
 --                           ODE problems

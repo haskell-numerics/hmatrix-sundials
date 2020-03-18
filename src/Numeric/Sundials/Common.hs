@@ -125,6 +125,7 @@ data CConsts = CConsts
           -> Ptr () -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunVector
           -> IO CInt
   , c_requested_event_direction :: VS.Vector CInt
+  , c_next_time_event :: IO CDouble
   , c_max_events :: CInt
   , c_minstep :: CDouble
   , c_fixedstep :: CDouble
@@ -187,6 +188,7 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
       poke record_event_ptr . fromIntegral $ fromEnum eventRecord
       return 0
     c_max_events = fromIntegral odeMaxEvents
+    c_next_time_event = coerce odeTimeBasedEvents
     c_jac_set = fromIntegral . fromEnum $ isJust odeJacobian
     c_jac t y _fy jacS _ptr _tmp1 _tmp2 _tmp3 = do
       case odeJacobian of
