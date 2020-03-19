@@ -24,6 +24,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.ByteString as BS
 import Control.Monad.Reader
 import GHC.Generics (Generic)
+import Foreign.ForeignPtr
 
 -- | A collection of variables that we allocate on the Haskell side and
 -- pass into the C code to be filled.
@@ -110,7 +111,15 @@ data CConsts = CConsts
   , c_atol :: VS.Vector CDouble
   , c_n_event_specs :: CInt
   , c_event_fn :: CDouble -> Ptr T.SunVector -> Ptr CDouble -> Ptr () -> IO CInt
-  , c_apply_event :: CInt -> CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> IO CInt
+  , c_apply_event
+      :: CInt -- number of triggered events
+      -> Ptr CInt -- event indices
+      -> CDouble -- time
+      -> Ptr T.SunVector -- y
+      -> Ptr T.SunVector -- new y
+      -> Ptr CInt -- (out) stop the solver?
+      -> Ptr CInt -- (out) record the event?
+      -> IO CInt
   , c_jac_set :: CInt
   , c_jac :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunMatrix
           -> Ptr () -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunVector
@@ -161,24 +170,22 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
       -- FIXME: We should be able to use poke somehow
       T.vectorToC vals (fromIntegral c_n_event_specs) out_ptr
       return 0
-    c_apply_event event_index t y_ptr y'_ptr = do
+    c_apply_event n_events event_indices_ptr t y_ptr y'_ptr stop_solver_ptr record_event_ptr = do
+      event_indices <- vecFromPtr event_indices_ptr (fromIntegral n_events)
+      -- Apparently there's no safe version of 
       y_vec <- peek y_ptr
-      let
-        ev = odeEvents V.! (fromIntegral event_index)
-        y' = coerce (eventUpdate ev) t (sunVecVals y_vec)
+      EventHandlerResult{..} <-
+        odeEventHandler
+          (coerce t :: Double)
+          (coerce $ sunVecVals y_vec :: VS.Vector Double)
+          (VS.map fromIntegral event_indices :: VS.Vector Int)
       poke y'_ptr $ SunVector
         { sunVecN = sunVecN y_vec
-        , sunVecVals = y'
+        , sunVecVals = coerce eventNewState
         }
+      poke stop_solver_ptr . fromIntegral $ fromEnum eventStopSolver
+      poke record_event_ptr . fromIntegral $ fromEnum eventRecord
       return 0
-    c_event_stops_solver =
-      V.convert
-      . V.map (fromIntegral . fromEnum . eventStopSolver)
-      $ odeEvents
-    c_event_record =
-      V.convert
-      . V.map (fromIntegral . fromEnum . eventRecord)
-      $ odeEvents
     c_max_events = fromIntegral odeMaxEvents
     c_jac_set = fromIntegral . fromEnum $ isJust odeJacobian
     c_jac t y _fy jacS _ptr _tmp1 _tmp2 _tmp3 = do
@@ -311,6 +318,22 @@ solveCommon solve_c opts problem@(OdeProblem{..})
       solve_c consts vars report_error
     frozenVars <- freezeCVars vars
     assembleSolverResult problem ret frozenVars
+
+-- | An auxiliary function to construct a storable vector from a C pointer
+-- and length.
+--
+-- There doesn't seem to be a safe version of 'VS.unsafeFromForeignPtr0',
+-- nor a way to clone an immutable vector, so we emulate it via an
+-- intermediate mutable vector.
+vecFromPtr
+  :: VS.Storable a
+  => Ptr a
+  -> Int
+  -> IO (VS.Vector a)
+vecFromPtr ptr n = do
+  fptr <- newForeignPtr_ ptr
+  let mv = VSM.unsafeFromForeignPtr0 fptr n
+  VS.freeze mv -- this does the copying and makes the whole thing safe
 
 ----------------------------------------------------------------------
 --                           Logging

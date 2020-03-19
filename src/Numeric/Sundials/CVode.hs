@@ -226,50 +226,27 @@ solveC CConsts{..} CVars{..} report_error =
 
       /* How many events triggered? */
       int n_events_triggered = 0;
-      /* Should we stop the solver? */
-      int stop_solver = 0;
-      /* Should we record this set of events in the output matrix? */
-      int record_events = 0;
-      flag = CVodeGetRootInfo(cvode_mem, ($vec-ptr:(int *c_root_info)));
+      int *c_root_info = ($vec-ptr:(int *c_root_info));
+      flag = CVodeGetRootInfo(cvode_mem, c_root_info);
       if (check_flag(&flag, "CVodeGetRootInfo", 1, report_error)) return 1;
       for (i = 0; i < $(int c_n_event_specs); i++) {
-        int ev = ($vec-ptr:(int *c_root_info))[i];
+        int ev = c_root_info[i];
         int req_dir = ($vec-ptr:(const int *c_requested_event_direction))[i];
         if (ev != 0 && ev * req_dir >= 0) {
-          int record_this_event = ($vec-ptr:(int *c_event_record))[i];
-          n_events_triggered++;
-          record_events = record_events || record_this_event;
-          /* If we encounter an event that stops the solver, we still
-             handle all the simultaneous events instead of stopping
-             immediately. That's because stopping the solver is used in two
-             different scenarios:
-
-             1. Stopping for good
-             2. Restarting the solver
-
-             In the second case, we'll want all simultaneous events handled
-             because we won't have another chance to do that. */
-          stop_solver = stop_solver || ($vec-ptr:(int *c_event_stops_solver))[i];
-
-          if (record_this_event) {
-            ($vec-ptr:(int *c_actual_event_direction))[event_ind] = ev;
-            ($vec-ptr:(int *c_event_index))[event_ind] = i;
-            ($vec-ptr:(double *c_event_time))[event_ind] = t;
-            event_ind++;
-          }
-
-          /* Update the state with the supplied function */
-          $fun:(int (* c_apply_event) (int, double, SunVector y[], SunVector z[]))(i, t, y, y);
-
-          if (event_ind >= $(int c_max_events)) {
-            /* We collected the requested number of events. Stop the solver.
-               Do not goto finish here because we need to add the row after the update.
-               However, break from the loop because we don't have the space for any more events. */
-            ($vec-ptr:(sunindextype *c_diagnostics))[10] = 1;
-            stop_solver = 1;
-            break;
-          }
+          /* After the above call to CVodeGetRootInfo, c_root_info has an
+          entry per EventSpec. Here we reuse the same array but convert it
+          into one that contains indices of triggered events. */
+          c_root_info[n_events_triggered++] = i;
         }
+      }
+
+      /* Should we stop the solver? */
+      int stop_solver = 0;
+      /* Should we record the state before/after the event in the output matrix? */
+      int record_events = 0;
+      if (n_events_triggered > 0) {
+        /* Update the state with the supplied function */
+        $fun:(int (* c_apply_event) (int, int*, double, SunVector y[], SunVector z[], int*, int*))(n_events_triggered, c_root_info, t, y, y, &stop_solver, &record_events);
       }
 
       if (record_events) {
@@ -277,12 +254,17 @@ solveC CConsts{..} CVars{..} report_error =
         for (j = 0; j < c_dim; j++) {
           ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
         }
+        event_ind++;
         output_ind++;
         ($vec-ptr:(int *c_n_rows))[0] = output_ind;
       } else {
         /* Remove the saved row */
         output_ind--;
         ($vec-ptr:(int *c_n_rows))[0] = output_ind;
+      }
+      if (event_ind >= $(int c_max_events)) {
+        ($vec-ptr:(sunindextype *c_diagnostics))[10] = 1;
+        stop_solver = 1;
       }
       if (stop_solver) {
         goto finish;

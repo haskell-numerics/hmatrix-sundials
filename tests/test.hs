@@ -20,6 +20,7 @@ import Data.List
 import Data.Maybe
 import Data.Foldable
 import Control.Monad
+import Control.Exception
 import Katip
 import System.IO
 import System.FilePath
@@ -153,6 +154,22 @@ odeGoldenTest do_canonical opts name action =
         cmp
         upd
 
+-- | Make an 'EventHandler' from a vector of per-event handlers and
+-- parameters
+mkEventHandler
+  :: V.Vector (Double -> VS.Vector Double -> VS.Vector Double)
+  -> V.Vector Bool -- ^ stop the solver?
+  -> V.Vector Bool
+  -> EventHandler
+mkEventHandler handlers stop_solver_vec record_event_vec t y0 evs = return $ EventHandlerResult
+  { eventStopSolver = or . map (stop_solver_vec V.!) $ VS.toList evs
+  , eventRecord = or . map (record_event_vec V.!) $ VS.toList evs
+  , eventNewState = foldl' (\y hndl -> hndl t y) y0 . map (handlers V.!) $ VS.toList evs
+  }
+
+nilEventHandler :: EventHandler
+nilEventHandler _ _ _ = throwIO $ ErrorCall "nilEventHandler"
+
 ----------------------------------------------------------------------
 --                             The tests
 ----------------------------------------------------------------------
@@ -211,20 +228,18 @@ eventTests opts = testGroup "Events"
         (snd robertson)
           { odeEvents =
             [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.0001
-                        , eventUpdate = upd
                         , eventDirection = AnyDirection
-                        , eventStopSolver = False
-                        , eventRecord = True
                         }
             , EventSpec { eventCondition = \_t y -> y ! 2 - 0.01
-                        , eventUpdate = upd
                         , eventDirection = AnyDirection
-                        , eventStopSolver = False
-                        , eventRecord = True
                         }
             ]
           , odeMaxEvents = 100
           , odeSolTimes = [0,100]
+          , odeEventHandler = mkEventHandler
+            (V.replicate 2 upd)
+            (V.replicate 2 False)
+            (V.replicate 2 True)
           }
   , odeGoldenTest True opts "Bounded_sine" $
       runKatipT ?log_env $ solve opts boundedSine
@@ -259,22 +274,22 @@ cascadingEventsTest opts = odeGoldenTest True opts "Cascading_events" $ do
       , odeJacobian = Nothing
       , odeInitCond = [0, 0]
       , odeEvents = events
+      , odeEventHandler = mkEventHandler
+          [\_ y -> [7, y ! 1]
+          ,\_ y -> [y ! 0, 1]
+          ]
+          (V.replicate 2 False)
+          (V.replicate 2 True)
       , odeMaxEvents = 100
       , odeSolTimes = [0,10]
       , odeTolerances = defaultTolerances
       }
     events =
       [ EventSpec { eventCondition = \_t y -> y ! 0 - 5
-                  , eventUpdate = \_ y -> [7, y ! 1]
                   , eventDirection = AnyDirection
-                  , eventStopSolver = False
-                  , eventRecord = True
                   }
       , EventSpec { eventCondition = \_t y -> y ! 0 - 6
-                  , eventUpdate = \_ y -> [y ! 0, 1]
                   , eventDirection = AnyDirection
-                  , eventStopSolver = False
-                  , eventRecord = True
                   }
       ]
 
@@ -288,19 +303,20 @@ simultaneousEventsTest opts = testGroup "Simultaneous events"
             , odeJacobian = Nothing
             , odeInitCond = [0,0]
             , odeEvents = events
+            , odeEventHandler = mkEventHandler
+                (V.map (\i _ y -> y VS.// [(i,1)]) [0..1])
+                (V.fromList stopSolver)
+                (V.fromList record)
             , odeMaxEvents = maxEvents
             , odeSolTimes = [0,10]
             , odeTolerances = defaultTolerances
             }
-          event i =
+          event =
             EventSpec
               { eventCondition = \t _ -> t - 5
-              , eventUpdate = \_ y -> y VS.// [(i,1)]
               , eventDirection = AnyDirection
-              , eventStopSolver = stopSolver !! i
-              , eventRecord = record !! i
               }
-          events = V.map event [0..1]
+          events = V.replicate 2 event
       runKatipT ?log_env $ solve opts prob
   | maxEvents <- [0..3]
   , record <- replicateM 2 [False,True]
@@ -334,6 +350,7 @@ brusselator = (,) "brusselator" $ OdeProblem
       , (-u)                      , u              , (-1.0) / eps - u
       ]
   , odeEvents = mempty
+  , odeEventHandler = nilEventHandler
   , odeMaxEvents = 0
   , odeInitCond = [1.2, 3.1, 3.0]
   , odeSolTimes = [0.0, 0.1 .. 10.0]
@@ -350,6 +367,7 @@ exponential = OdeProblem
   , odeJacobian = Nothing
   , odeInitCond = vector [1]
   , odeEvents = events
+  , odeEventHandler = mkEventHandler [\_ _ -> [ 2 ]] [False] [True]
   , odeMaxEvents = 100
   , odeSolTimes = vector [ fromIntegral k / 100 | k <- [0..(22::Int)]]
   , odeTolerances = defaultTolerances
@@ -357,10 +375,7 @@ exponential = OdeProblem
   where
     events =
       [ EventSpec { eventCondition = \_ y -> y ! 0 - 1.1
-                  , eventUpdate = \_ _ -> vector [ 2 ]
                   , eventDirection = Upwards
-                  , eventStopSolver = False
-                  , eventRecord = True
                   }
       ]
 
@@ -377,6 +392,7 @@ robertson = (,) "Robertson" $ OdeProblem
       ]
   , odeInitCond = [1.0, 0.0, 0.0]
   , odeEvents = []
+  , odeEventHandler = nilEventHandler
   , odeMaxEvents = 0
   , odeSolTimes = [0,20]
   , odeTolerances = defaultTolerances -- FIXME how to make this integrate indefinitely, as in the sundials example?
@@ -387,6 +403,7 @@ empty = (,) "Empty system" $ OdeProblem
   , odeJacobian = Nothing
   , odeInitCond = []
   , odeEvents = []
+  , odeEventHandler = nilEventHandler
   , odeMaxEvents = 0
   , odeSolTimes = [0,1]
   , odeTolerances = defaultTolerances
@@ -397,6 +414,7 @@ stiffish = OdeProblem
   , odeJacobian = Nothing
   , odeInitCond = [0.0]
   , odeEvents = []
+  , odeEventHandler = nilEventHandler
   , odeMaxEvents = 0
   , odeSolTimes = [0.0, 0.1 .. 10.0]
   , odeTolerances = defaultTolerances
@@ -411,6 +429,12 @@ boundedSine = OdeProblem
   , odeJacobian = Nothing
   , odeInitCond = [0,1]
   , odeEvents = events
+  , odeEventHandler = mkEventHandler
+      [\_ y -> vector [ y ! 0, - abs (y ! 1) ]
+      ,\_ y -> vector [ y ! 0, abs (y ! 1) ]
+      ]
+      (V.replicate 2 False)
+      (V.replicate 2 True)
   , odeMaxEvents = 100
   , odeSolTimes = VS.fromList [ 2 * pi * k / 360 | k <- [0..360]]
   , odeTolerances = defaultTolerances
@@ -418,17 +442,11 @@ boundedSine = OdeProblem
   where
     events =
       [ EventSpec { eventCondition = \_t y -> y ! 0 - 0.9
-                     , eventUpdate = \_ y -> vector [ y ! 0, - abs (y ! 1) ]
-                     , eventDirection = Upwards
-                     , eventStopSolver = False
-                     , eventRecord = True
-                     }
+                  , eventDirection = Upwards
+                  }
       , EventSpec { eventCondition = \_t y -> y ! 0 + 0.9
-                     , eventUpdate = \_ y -> vector [ y ! 0, abs (y ! 1) ]
-                     , eventDirection = Downwards
-                     , eventStopSolver = False
-                     , eventRecord = True
-                     }
+                  , eventDirection = Downwards
+                  }
       ]
 
 -- | An example of a system with a discontinuous RHS
@@ -440,6 +458,10 @@ discontinuousRHS = OdeProblem
   , odeJacobian = Nothing
   , odeInitCond = [0]
   , odeEvents = events
+  , odeEventHandler = mkEventHandler
+      (V.replicate 2 (\_ y -> y))
+      (V.replicate 2 False)
+      (V.replicate 2 False)
   , odeMaxEvents = 10
   , odeSolTimes = [0,1]
   , odeTolerances = defaultTolerances
@@ -452,17 +474,11 @@ discontinuousRHS = OdeProblem
     events =
       [ EventSpec
         { eventCondition = \t _ -> t - t1
-        , eventUpdate = \_ y -> y
         , eventDirection = Upwards
-        , eventStopSolver = False
-        , eventRecord = False
         }
       , EventSpec
         { eventCondition = \t _ -> t - t2
-        , eventUpdate = \_ y -> y
         , eventDirection = Upwards
-        , eventStopSolver = False
-        , eventRecord = False
         }
       ]
 
@@ -471,6 +487,10 @@ modulusEvent record_event = OdeProblem
   , odeJacobian = Nothing
   , odeInitCond = [0]
   , odeEvents = events
+  , odeEventHandler = mkEventHandler
+      [\_ y -> y]
+      [False]
+      [record_event]
   , odeMaxEvents = 11
   , odeSolTimes = [0,10]
   , odeTolerances = defaultTolerances
@@ -484,9 +504,6 @@ modulusEvent record_event = OdeProblem
               b = 1
             in
               abs((a-b/2) `fmod` (2*b) - b) - b/2
-        , eventUpdate = \_ y -> y
         , eventDirection = AnyDirection
-        , eventStopSolver = False
-        , eventRecord = record_event
         }
       ]

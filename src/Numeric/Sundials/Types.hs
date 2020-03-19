@@ -1,5 +1,7 @@
 module Numeric.Sundials.Types
   ( OdeProblem(..)
+  , EventHandler
+  , EventHandlerResult(..)
   , Tolerances(..)
   , OdeRhsCType
   , OdeRhs(..)
@@ -40,6 +42,22 @@ import           Numeric.Sundials.Foreign (SunVector(..), SunMatrix(..),
                                           sunContentDataOffset)
 import GHC.Generics (Generic)
 
+data EventHandlerResult = EventHandlerResult
+  { eventStopSolver :: !Bool
+    -- ^ should we stop the solver after handling this event?
+  , eventRecord :: !Bool
+    -- ^ should we record the state before and after the event in the ODE
+    -- solution?
+  , eventNewState :: !(VS.Vector Double)
+    -- ^ the new state after the event has been applied
+  }
+
+type EventHandler
+  =  Double -- ^ time
+  -> VS.Vector Double -- ^ values of the variables
+  -> VS.Vector Int -- ^ vector of triggered event indices
+  -> IO EventHandlerResult
+
 data OdeProblem = OdeProblem
   { odeEvents :: V.Vector EventSpec
     -- ^ The events that may occur, including the condition when they occur
@@ -48,6 +66,7 @@ data OdeProblem = OdeProblem
     -- ^ The maximal number of events that may occur. This is needed to
     -- allocate enough space to store the events. If more events occur, an
     -- error is returned.
+  , odeEventHandler :: EventHandler -- ^ The event handler.
   , odeRhs :: OdeRhs
     -- ^ The right-hand side of the system: either a Haskell function or
     -- a pointer to a compiled function.
@@ -153,13 +172,6 @@ data CrossingDirection = Upwards | Downwards | AnyDirection
 data EventSpec = EventSpec
   { eventCondition  :: Double -> VS.Vector Double -> Double
   , eventDirection  :: !CrossingDirection
-  , eventUpdate     :: Double -> VS.Vector Double -> VS.Vector Double
-  , eventStopSolver :: !Bool
-  , eventRecord     :: !Bool
-    -- ^ Whether to record this event in the output matrix.
-    -- If an event is not recorded, it does not count towards 'odeMaxEvents'.
-    -- Such events are useful to alert the solver about the discontinuities
-    -- of the RHS.
   }
 
 sunTypesTable :: Map.Map TypeSpecifier TH.TypeQ
