@@ -250,11 +250,6 @@ assembleSolverResult OdeProblem{..} ret CVars{..} = do
       if c_local_error_set VS.! 0 == 0
         then (mempty, mempty)
         else coerce (c_local_error, c_var_weight)
-    eventInfo :: V.Vector EventInfo
-    eventInfo = V.take (fromIntegral $ c_n_events VS.! 0) $ V.zipWith3 EventInfo
-      (V.convert . (coerce :: VS.Vector CDouble -> VS.Vector Double) $ c_event_time)
-      (V.convert . VS.map fromIntegral $ c_event_index)
-      (V.map (fromMaybe undefined . intToDirection) $ V.convert c_actual_event_direction)
     diagnostics = SundialsDiagnostics
       (fromIntegral $ c_diagnostics VS.!0)
       (fromIntegral $ c_diagnostics VS.!1)
@@ -273,7 +268,6 @@ assembleSolverResult OdeProblem{..} ret CVars{..} = do
         Right $ SundialsSolution
           { actualTimeGrid = extractTimeGrid output_mat
           , solutionMatrix = dropTimeGrid output_mat
-          , eventInfo
           , diagnostics
           }
       else
@@ -305,7 +299,6 @@ solveCommon solve_c opts problem@(OdeProblem{..})
     return . Right $ SundialsSolution
       { actualTimeGrid = odeSolTimes
       , solutionMatrix = (VS.length odeSolTimes >< 0) []
-      , eventInfo = mempty
       , diagnostics = emptyDiagnostics
       }
 

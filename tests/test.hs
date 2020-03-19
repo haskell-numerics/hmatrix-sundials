@@ -88,9 +88,6 @@ deriving instance Generic ErrorDiagnostics
 instance ToJSON ErrorDiagnostics
 instance FromJSON ErrorDiagnostics
 
-instance ToJSON EventInfo
-instance FromJSON EventInfo
-
 instance ToJSON CrossingDirection
 instance FromJSON CrossingDirection
 
@@ -117,15 +114,6 @@ compareSolutions same_method a b = asum @[]
   , do
       guard . not $ norm_Inf (solutionMatrix a - solutionMatrix b) < precision
       return "Different values in the solutionMatrix"
-  , do
-      guard . not $ V.map rootDirection (eventInfo a) == V.map rootDirection (eventInfo b)
-      return "Different rootDirections"
-  , do
-      guard . not $ V.map eventIndex (eventInfo a) == V.map eventIndex (eventInfo b)
-      return "Different eventIndices"
-  , do
-      guard . not $ norm_Inf ((V.convert $ V.map eventTime (eventInfo a) :: VS.Vector Double) - (V.convert $ V.map eventTime (eventInfo b))) < precision
-      return "Different eventTimes"
   ]
   where
     precision = if same_method then 1e-10 else 1e-1

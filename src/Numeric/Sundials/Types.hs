@@ -11,7 +11,6 @@ module Numeric.Sundials.Types
   , ErrorDiagnostics(..)
   , emptyDiagnostics
   , SundialsSolution(..)
-  , EventInfo(..)
   , CrossingDirection(..)
   , EventSpec(..)
   , SunVector(..)
@@ -127,7 +126,6 @@ data SundialsSolution =
   SundialsSolution
   { actualTimeGrid :: VS.Vector Double    -- ^ actual time grid returned by the solver (with duplicated event times)
   , solutionMatrix :: Matrix Double       -- ^ matrix of solutions: each column is an unknwown
-  , eventInfo      :: V.Vector EventInfo  -- ^ event infos, as many items as triggered events during the simulation
   , diagnostics    :: SundialsDiagnostics -- ^ usual Sundials diagnostics
   }
 
@@ -147,14 +145,6 @@ data ErrorDiagnostics = ErrorDiagnostics
     -- ^ Partial solution of the ODE system, up until the moment when
     -- solving failed. Contains the time as its first column.
   } deriving Show
-
-data EventInfo =
-  EventInfo
-  { eventTime     :: !Double            -- ^ time at which event was triggered
-  , eventIndex    :: !Int               -- ^ which index was triggered
-  , rootDirection :: !CrossingDirection -- ^ in which direction ((+)->(-) or (-)->(+)) the root is crossed
-  }
-  deriving (Generic, Show, NFData)
 
 -- | The direction in which a function should cross the x axis
 data CrossingDirection = Upwards | Downwards | AnyDirection
