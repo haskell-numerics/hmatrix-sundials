@@ -3,7 +3,8 @@
         "actualTimeGrid": [
             0,
             5,
-            5
+            5,
+            10
         ],
         "diagnostics": {
             "dlsGetNumJacEvals": 0,
@@ -16,7 +17,7 @@
             "odeGetNumRhsEvals_fi": 23,
             "odeGetNumStepAttempts": 4,
             "odeGetNumSteps": 4,
-            "odeMaxEventsReached": true
+            "odeMaxEventsReached": false
         },
         "solutionMatrix": [
             [
@@ -26,6 +27,10 @@
             [
                 0,
                 0
+            ],
+            [
+                1,
+                1
             ],
             [
                 1,
