@@ -19,13 +19,6 @@
             "odeGetNumSteps": 4,
             "odeMaxEventsReached": false
         },
-        "eventInfo": [
-            {
-                "eventIndex": 0,
-                "eventTime": 5.00000000000107,
-                "rootDirection": "Upwards"
-            }
-        ],
         "solutionMatrix": [
             [
                 0,

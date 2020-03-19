@@ -37,58 +37,6 @@
             "odeGetNumSteps": 1,
             "odeMaxEventsReached": false
         },
-        "eventInfo": [
-            {
-                "eventIndex": 0,
-                "eventTime": 1,
-                "rootDirection": "Downwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 2,
-                "rootDirection": "Upwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 3,
-                "rootDirection": "Downwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 4,
-                "rootDirection": "Upwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 5,
-                "rootDirection": "Downwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 6,
-                "rootDirection": "Upwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 7,
-                "rootDirection": "Downwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 8,
-                "rootDirection": "Upwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 9,
-                "rootDirection": "Downwards"
-            },
-            {
-                "eventIndex": 0,
-                "eventTime": 10,
-                "rootDirection": "Upwards"
-            }
-        ],
         "solutionMatrix": [
             [
                 0

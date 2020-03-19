@@ -17,7 +17,6 @@
             "odeGetNumSteps": 11,
             "odeMaxEventsReached": false
         },
-        "eventInfo": [],
         "solutionMatrix": [
             [
                 0
