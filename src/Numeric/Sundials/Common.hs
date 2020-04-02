@@ -125,8 +125,6 @@ data CConsts = CConsts
           -> Ptr () -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunVector
           -> IO CInt
   , c_requested_event_direction :: VS.Vector CInt
-  , c_event_stops_solver :: VS.Vector CInt
-  , c_event_record :: VS.Vector CInt
   , c_max_events :: CInt
   , c_minstep :: CDouble
   , c_max_n_steps :: SunIndexType
