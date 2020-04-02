@@ -113,6 +113,14 @@ type Jacobian = Double -> Vector Double -> Matrix Double
 data ODEOpts method = ODEOpts {
     maxNumSteps :: Int32
   , minStep     :: Double
+  , fixedStep   :: Double
+      -- ^ If this is greater than 0.0, then a fixed-size step is used.
+      --
+      -- This is only recommended for testing/debugging, not for production
+      -- use.
+      --
+      -- Also, this only has effect for ARKode; using this with CVode will
+      -- trigger an error.
   , maxFail     :: Int32
   , odeMethod   :: method
   , initStep    :: Maybe Double

@@ -92,6 +92,11 @@ solveC CConsts{..} CVars{..} report_error =
 
   ARKErrHandlerFn report_error = $fun:(void (*report_error)(int,const char*, const char*, char*, void*));
 
+  if ($(double c_fixedstep) > 0.0) {
+    report_error(0, "hmatrix-sundials", "solveC", "fixedStep cannot be used with CVode", NULL);
+    return 1;
+  }
+
   /* Initialize odeMaxEventsReached to False */
   ($vec-ptr:(sunindextype *c_diagnostics))[10] = 0;
 

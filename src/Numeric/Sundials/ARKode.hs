@@ -159,6 +159,12 @@ solveC CConsts{..} CVars{..} report_error =
   flag = ARKStepSetErrHandlerFn(arkode_mem, report_error, NULL);
   if (check_flag(&flag, "ARKStepSetErrHandlerFn", 1, report_error)) return 1;
 
+  int c_fixedstep = $(double c_fixedstep);
+  if (c_fixedstep > 0.0) {
+    flag = ARKStepSetFixedStep(arkode_mem, c_fixedstep);
+    if (check_flag(&flag, "ARKStepSetFixedStep", 1, report_error)) return(1);
+  }
+
   /* Set the user data */
   flag = ARKStepSetUserData(arkode_mem, $(UserData* c_rhs_userdata));
   if (check_flag(&flag, "ARKStepSetUserData", 1, report_error)) return(1);

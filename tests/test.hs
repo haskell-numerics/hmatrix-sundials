@@ -47,6 +47,7 @@ defaultOpts :: method -> ODEOpts method
 defaultOpts method = ODEOpts
   { maxNumSteps = 1e5
   , minStep     = 1.0e-14
+  , fixedStep   = 0
   , maxFail     = 10
   , odeMethod   = method
   , initStep    = Nothing

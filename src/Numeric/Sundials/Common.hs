@@ -127,6 +127,7 @@ data CConsts = CConsts
   , c_requested_event_direction :: VS.Vector CInt
   , c_max_events :: CInt
   , c_minstep :: CDouble
+  , c_fixedstep :: CDouble
   , c_max_n_steps :: SunIndexType
   , c_max_err_test_fails :: CInt
   , c_init_step_size_set :: CInt
@@ -156,6 +157,7 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
     c_rtol = relTolerance odeTolerances
     c_atol = either (VS.replicate dim) id $ absTolerances odeTolerances
     c_minstep = coerce minStep
+    c_fixedstep = coerce fixedStep
     c_max_n_steps = fromIntegral maxNumSteps
     c_max_err_test_fails = fromIntegral maxFail
     c_init_step_size_set = fromIntegral . fromEnum $ isJust initStep
