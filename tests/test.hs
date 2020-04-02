@@ -33,6 +33,18 @@ import GHC.Generics
 --                            Helpers
 ----------------------------------------------------------------------
 
+emptyOdeProblem :: OdeProblem
+emptyOdeProblem = OdeProblem
+      { odeRhs = error "emptyOdeProblem: no odeRhs provided"
+      , odeJacobian = Nothing
+      , odeInitCond = error "emptyOdeProblem: no odeInitCond provided"
+      , odeEvents = mempty
+      , odeEventHandler = nilEventHandler
+      , odeMaxEvents = 100
+      , odeSolTimes = error "emptyOdeProblem: no odeSolTimes provided"
+      , odeTolerances = defaultTolerances
+      }
+
 data OdeSolver = forall method . (Show method, Method method) => OdeSolver
   String -- name
   [method]
@@ -270,9 +282,8 @@ modulusEventTest opts0 = localOption (mkTimeout 1e5) $ testGroup "Modulus event"
 cascadingEventsTest opts = odeGoldenTest True opts "Cascading_events" $ do
   runKatipT ?log_env $ solve opts prob
   where
-    prob = OdeProblem
+    prob = emptyOdeProblem
       { odeRhs = odeRhsPure $ \_ _ -> [1, 0]
-      , odeJacobian = Nothing
       , odeInitCond = [0, 0]
       , odeEvents = events
       , odeEventHandler = mkEventHandler
@@ -283,7 +294,6 @@ cascadingEventsTest opts = odeGoldenTest True opts "Cascading_events" $ do
           (V.replicate 2 True)
       , odeMaxEvents = 100
       , odeSolTimes = [0,10]
-      , odeTolerances = defaultTolerances
       }
     events =
       [ EventSpec { eventCondition = \_t y -> y ! 0 - 5
@@ -299,7 +309,7 @@ simultaneousEventsTest opts = testGroup "Simultaneous events"
     maxEvents
     (showList record)
     (showList stopSolver)) $ do
-      let prob = OdeProblem
+      let prob = emptyOdeProblem
             { odeRhs = odeRhsPure $ \_ _ -> [0,0]
             , odeJacobian = Nothing
             , odeInitCond = [0,0]
@@ -329,7 +339,7 @@ simultaneousEventsTest opts = testGroup "Simultaneous events"
 ----------------------------------------------------------------------
 
 brusselator :: (String, OdeProblem)
-brusselator = (,) "brusselator" $ OdeProblem
+brusselator = (,) "brusselator" $ emptyOdeProblem
   { odeRhs = odeRhsPure $ \_t x ->
       let
         u = x VS.! 0
@@ -363,7 +373,7 @@ brusselator = (,) "brusselator" $ OdeProblem
     eps :: Fractional a => a
     eps = 5.0e-6
 
-exponential = OdeProblem
+exponential = emptyOdeProblem
   { odeRhs = odeRhsPure $ \_ y -> [y VS.! 0]
   , odeJacobian = Nothing
   , odeInitCond = vector [1]
@@ -380,7 +390,7 @@ exponential = OdeProblem
                   }
       ]
 
-robertson = (,) "Robertson" $ OdeProblem
+robertson = (,) "Robertson" $ emptyOdeProblem
   { odeRhs = odeRhsPure $ \_ (VS.toList -> [y1,y2,y3]) ->
       [ -0.04 * y1 + 1.0e4 * y2 * y3
       , 0.04 * y1 - 1.0e4 * y2 * y3 - 3.0e7 * (y2)^(2 :: Int)
@@ -399,7 +409,7 @@ robertson = (,) "Robertson" $ OdeProblem
   , odeTolerances = defaultTolerances -- FIXME how to make this integrate indefinitely, as in the sundials example?
   }
 
-empty = (,) "Empty system" $ OdeProblem
+empty = (,) "Empty system" $ emptyOdeProblem
   { odeRhs = odeRhsPure $ \_ _ -> []
   , odeJacobian = Nothing
   , odeInitCond = []
@@ -410,7 +420,7 @@ empty = (,) "Empty system" $ OdeProblem
   , odeTolerances = defaultTolerances
   }
 
-stiffish = OdeProblem
+stiffish = emptyOdeProblem
   { odeRhs = odeRhsPure $ \t ((VS.! 0) -> u) -> [ lamda * u + 1.0 / (1.0 + t * t) - lamda * atan t ]
   , odeJacobian = Nothing
   , odeInitCond = [0.0]
@@ -425,7 +435,7 @@ stiffish = OdeProblem
 
 -- A sine wave that only changes direction once it reaches ±0.9.
 -- Illustrates event-specific reset function
-boundedSine = OdeProblem
+boundedSine = emptyOdeProblem
   { odeRhs = odeRhsPure $ \_t y -> [y VS.! 1, - y VS.! 0]
   , odeJacobian = Nothing
   , odeInitCond = [0,1]
@@ -451,7 +461,7 @@ boundedSine = OdeProblem
       ]
 
 -- | An example of a system with a discontinuous RHS
-discontinuousRHS = OdeProblem
+discontinuousRHS = emptyOdeProblem
   { odeRhs = odeRhsPure $ \t _ ->
       if t1 <= t && t <= t2
         then [deriv]
@@ -483,7 +493,7 @@ discontinuousRHS = OdeProblem
         }
       ]
 
-modulusEvent record_event = OdeProblem
+modulusEvent record_event = emptyOdeProblem
   { odeRhs = odeRhsPure $ \t _ -> [t `fmod` 1]
   , odeJacobian = Nothing
   , odeInitCond = [0]
