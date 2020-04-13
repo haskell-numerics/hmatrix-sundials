@@ -217,6 +217,7 @@ solveC CConsts{..} CVars{..} report_error =
   }
 
   /* Store initial conditions */
+  ($vec-ptr:(double *c_output_mat))[0 * (c_dim + 1) + 0] = ($vec-ptr:(double *c_sol_time))[0];
   for (j = 0; j < c_dim; j++) {
     ($vec-ptr:(double *c_output_mat))[0 * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
   }

@@ -254,6 +254,7 @@ main = do
           , cascadingEventsTest opts
           , simultaneousEventsTest opts
           , timeBasedEventTest opts
+          , timeGridTest opts
           ]
       | method <- methods
       ]
@@ -418,6 +419,14 @@ timeBasedEventTest opts = odeGoldenTest True opts "Time-based events" $ do
         }
   runKatipT ?log_env $ solve opts prob
 
+-- | A simple test that checks that we do the right thing even when the
+-- time grid does not start at 0.
+timeGridTest opts = odeGoldenTest True opts "Time grid test" $ do
+  runKatipT ?log_env $ solve opts emptyOdeProblem
+    { odeRhs = odeRhsPure $ \_ _ -> [1]
+    , odeInitCond = [0]
+    , odeSolTimes = [-3, -2, 0, 10, 100]
+    }
 
 ----------------------------------------------------------------------
 --                           ODE problems
