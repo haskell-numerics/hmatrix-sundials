@@ -438,7 +438,7 @@ timeGridTest opts = odeGoldenTest True opts "Time grid test" $ do
 timeAliasingTests opts = testGroup "Time aliasing"
   [ odeGoldenTest True opts ("Time aliasing; record="++show record) $ do
       (time_ev_spec, time_ev_handler) <- mkTimeEvents
-        [ (t, const id, False, record)
+        [ (t, if record then \_ y -> [y!0 + 0.2] else const id, False, record)
         | t <- VS.toList ts
         ]
       runKatipT ?log_env $ solve opts emptyOdeProblem
