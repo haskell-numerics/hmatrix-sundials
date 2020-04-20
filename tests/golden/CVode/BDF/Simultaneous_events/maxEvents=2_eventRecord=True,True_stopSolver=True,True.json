@@ -16,7 +16,7 @@
             "odeGetNumRhsEvals_fi": 0,
             "odeGetNumStepAttempts": 0,
             "odeGetNumSteps": 3,
-            "odeMaxEventsReached": true
+            "odeMaxEventsReached": false
         },
         "solutionMatrix": [
             [

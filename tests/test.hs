@@ -255,6 +255,7 @@ main = do
           , simultaneousEventsTest opts
           , timeBasedEventTest opts
           , timeGridTest opts
+          , timeAliasingTests opts
           ]
       | method <- methods
       ]
@@ -427,6 +428,30 @@ timeGridTest opts = odeGoldenTest True opts "Time grid test" $ do
     , odeInitCond = [0]
     , odeSolTimes = [-3, -2, 0, 10, 100]
     }
+
+-- | Test time aliasing: when some of the time-based events coincide
+-- exactly with time grid points.
+--
+-- There are two tests: for when events are recorded or not. This
+-- corresponds to time-based events with the conditions that either hold or
+-- not.
+timeAliasingTests opts = testGroup "Time aliasing"
+  [ odeGoldenTest True opts ("Time aliasing; record="++show record) $ do
+      (time_ev_spec, time_ev_handler) <- mkTimeEvents
+        [ (t, const id, False, record)
+        | t <- VS.toList ts
+        ]
+      runKatipT ?log_env $ solve opts emptyOdeProblem
+        { odeRhs = odeRhsPure $ \_ _ -> [1]
+        , odeInitCond = [0]
+        , odeSolTimes = ts
+        , odeTimeBasedEvents = time_ev_spec
+        , odeEventHandler = time_ev_handler
+        }
+  | record <- [False, True]
+  ]
+  where
+    ts = [1,2,3]
 
 ----------------------------------------------------------------------
 --                           ODE problems

@@ -21,7 +21,6 @@
             9,
             9,
             10,
-            10,
             10
         ],
         "diagnostics": {
@@ -30,9 +29,9 @@
             "odeGetNumErrTestFails": 0,
             "odeGetNumLinSolvSetups": 0,
             "odeGetNumNonlinSolvConvFails": 0,
-            "odeGetNumNonlinSolvIters": 0,
+            "odeGetNumNonlinSolvIters": 226,
             "odeGetNumRhsEvals_fe": 0,
-            "odeGetNumRhsEvals_fi": 1,
+            "odeGetNumRhsEvals_fi": 0,
             "odeGetNumStepAttempts": 0,
             "odeGetNumSteps": 0,
             "odeMaxEventsReached": false
@@ -94,9 +93,6 @@
             ],
             [
                 4.440955984094403
-            ],
-            [
-                4.934429440308819
             ],
             [
                 4.934429440308819

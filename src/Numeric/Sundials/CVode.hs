@@ -177,21 +177,23 @@ solveC CConsts{..} CVars{..} report_error =
   while (1) {
     double ti = ($vec-ptr:(double *c_sol_time))[input_ind];
     double next_time_event = ($fun:(double (*c_next_time_event)()))();
-    if (next_time_event <= t_start) {
+    if (next_time_event < t_start) {
       report_error(0, "hmatrix-sundials", "solveC", "time-based event is in the past", NULL);
       retval = 1;
       goto finish;
     }
     double next_stop_time = fmin(ti, next_time_event);
     flag = CVode(cvode_mem, next_stop_time, y, &t, CV_NORMAL); /* call integrator */
-    if (flag == CV_TOO_CLOSE) {
+    int root_based_event = flag == CV_ROOT_RETURN;
+    int time_based_event = t == next_time_event;
+    if (flag == CV_TOO_CLOSE && !time_based_event) {
       /* See Note [CV_TOO_CLOSE]
          No solving was required; just set the time t manually and continue
          as if solving succeeded. */
       t = next_stop_time;
     }
     else
-    if (t == next_stop_time && t == t_start && flag == CV_ROOT_RETURN) {
+    if (t == next_stop_time && t == t_start && flag == CV_ROOT_RETURN && !time_based_event) {
       /* See Note [CV_TOO_CLOSE]
          Probably the initial step size was set, and that's why we didn't
          get CV_TOO_CLOSE.
@@ -200,7 +202,9 @@ solveC CConsts{..} CVars{..} report_error =
       flag = CV_SUCCESS;
     }
     else
-    if (check_flag(&flag, "CVode", 1, report_error)) {
+    if (!(flag == CV_TOO_CLOSE && time_based_event) &&
+      check_flag(&flag, "CVode", 1, report_error)) {
+
       N_Vector ele = N_VNew_Serial(c_dim);
       N_Vector weights = N_VNew_Serial(c_dim);
       flag = CVodeGetEstLocalErrors(cvode_mem, ele);
@@ -219,8 +223,6 @@ solveC CConsts{..} CVars{..} report_error =
       N_VDestroy(weights);
       return 45;
     }
-    int root_based_event = flag == CV_ROOT_RETURN;
-    int time_based_event = t == next_time_event;
 
     /* Store the results for Haskell */
     ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
@@ -267,6 +269,15 @@ solveC CConsts{..} CVars{..} report_error =
       }
 
       if (record_events) {
+        /* A corner case: if the time-based event triggers at the very beginning,
+           then we don't want to duplicate the initial row, so rewind it back.
+           Note that we do this only in the branch where record_events is true;
+           otherwise we may end up erasing the initial row (see below). */
+        if (t == ($vec-ptr:(double *c_sol_time))[0] && output_ind == 2) {
+          output_ind--;
+          /* c_n_rows will be updated below anyway */
+        }
+
         ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + 0] = t;
         for (j = 0; j < c_dim; j++) {
           ($vec-ptr:(double *c_output_mat))[output_ind * (c_dim + 1) + (j + 1)] = NV_Ith_S(y,j);
@@ -275,9 +286,11 @@ solveC CConsts{..} CVars{..} report_error =
         output_ind++;
         ($vec-ptr:(int *c_n_rows))[0] = output_ind;
       } else {
-        /* Remove the saved row */
-        output_ind--;
-        ($vec-ptr:(int *c_n_rows))[0] = output_ind;
+        /* Remove the saved row — unless the event time also coincides with a requested time point */
+        if (t != ti) {
+          output_ind--;
+          ($vec-ptr:(int *c_n_rows))[0] = output_ind;
+        }
       }
       if (event_ind >= $(int c_max_events)) {
         ($vec-ptr:(sunindextype *c_diagnostics))[10] = 1;
@@ -293,7 +306,7 @@ solveC CConsts{..} CVars{..} report_error =
         if (check_flag(&flag, "CVodeReInit", 1, report_error)) return(1576);
       }
     }
-    else {
+    if (t == ti) {
       if (++input_ind >= $(int c_n_sol_times))
         goto finish;
     }
@@ -378,4 +391,10 @@ solveC CConsts{..} CVars{..} report_error =
    size is set, cvHin is not called, and CV_TOO_CLOSE is not triggered.
    Therefore we also add an explicit check to avoid an infinite loop of
    integrating over an empty interval.
+
+   One exception to all of the above is a time-based event that may be
+   scheduled for an exact same time as a time grid. In that case, we still
+   handle it. We don't fall into an infinite loop because once we handle
+   a time-based event, the next time-based event should be at a strictly
+   later time.
 -}
