@@ -178,8 +178,11 @@ solveC CConsts{..} CVars{..} report_error =
     double ti = ($vec-ptr:(double *c_sol_time))[input_ind];
     double next_time_event = ($fun:(double (*c_next_time_event)()))();
     if (next_time_event < t_start) {
-      report_error(0, "hmatrix-sundials", "solveC", "time-based event is in the past", NULL);
-      retval = 1;
+      size_t msg_size = 1000;
+      char *msg = alloca(msg_size);
+      snprintf(msg, msg_size, "time-based event is in the past: next event time = %.4f while we are at %.4f", next_time_event, t_start);
+      report_error(0, "hmatrix-sundials", "solveC", msg, NULL);
+      retval = 5669;
       goto finish;
     }
     double next_stop_time = fmin(ti, next_time_event);
