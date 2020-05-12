@@ -220,8 +220,7 @@ matrixToSunMatrix m = T.SunMatrix { T.rows = nr, T.cols = nc, T.vals = vs }
   where
     nr = fromIntegral $ rows m
     nc = fromIntegral $ cols m
-    -- FIXME: efficiency
-    vs = VS.fromList $ map coerce $ concat $ toLists m
+    vs = coerce . VS.concat $ toColumns m
 
 -- Contrary to the documentation, it appears that CVodeGetRootInfo
 -- may use both 1 and -1 to indicate a root, depending on the

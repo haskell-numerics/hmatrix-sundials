@@ -67,6 +67,7 @@ data SunVector = SunVector { sunVecN    :: SunIndexType
 data SunMatrix = SunMatrix { rows :: CInt
                            , cols :: CInt
                            , vals :: VS.Vector CDouble
+                             -- ^ matrix entries in the column-major order
                            }
 
 type SunIndexType = #type sunindextype
