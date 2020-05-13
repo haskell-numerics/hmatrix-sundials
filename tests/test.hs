@@ -524,8 +524,8 @@ robertson = (,) "Robertson" $ emptyOdeProblem
   , odeEvents = []
   , odeEventHandler = nilEventHandler
   , odeMaxEvents = 0
-  , odeSolTimes = [0,20]
-  , odeTolerances = defaultTolerances -- FIXME how to make this integrate indefinitely, as in the sundials example?
+  , odeSolTimes = [0,20,100,1000]
+  , odeTolerances = defaultTolerances
   }
 
 empty = (,) "Empty system" $ emptyOdeProblem
