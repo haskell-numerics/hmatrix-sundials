@@ -124,6 +124,10 @@ data CConsts = CConsts
   , c_jac :: CDouble -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunMatrix
           -> Ptr () -> Ptr T.SunVector -> Ptr T.SunVector -> Ptr T.SunVector
           -> IO CInt
+  , c_sparse_jac :: CInt
+      -- ^ If 0, use a dense matrix.
+      -- If non-0, use a sparse matrix with that number of non-zero
+      -- elements.
   , c_requested_event_direction :: VS.Vector CInt
   , c_next_time_event :: IO CDouble
   , c_max_events :: CInt
@@ -194,8 +198,13 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
       case odeJacobian of
         Nothing   -> undefined
         Just jacI -> do j <- matrixToSunMatrix . jacI (coerce t) <$> (coerce $ sunVecVals <$> peek y)
-                        poke jacS j
+                        case jacobianRepr of
+                          DenseJacobian -> poke jacS j
+                          SparseJacobian{} -> poke (castPtr jacS) (T.Sparse j)
                         return 0
+    c_sparse_jac = case jacobianRepr of
+      SparseJacobian n -> fromIntegral n
+      DenseJacobian -> 0
     c_method = methodToInt odeMethod
 
   (c_rhs, c_rhs_userdata) <-

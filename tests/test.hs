@@ -65,6 +65,7 @@ defaultOpts method = ODEOpts
   , maxFail     = 10
   , odeMethod   = method
   , initStep    = Nothing
+  , jacobianRepr = DenseJacobian
   }
 
 defaultTolerances = Tolerances
@@ -274,12 +275,22 @@ noErrorTests opts = testGroup "Absence of error"
 stiffishTest opts = odeGoldenTest True opts "Stiffish" $
   runKatipT ?log_env $ solve opts stiffish
 
-withVsWithoutJacobian opts = testGroup "With vs without jacobian"
-  [ testCase name $ do
+withVsWithoutJacobian opts0 = testGroup "With vs without jacobian"
+  [ testCase (name ++ " " ++ (if sparse then "sparse" else "dense")) $ do
+      let
+        opts = opts0
+          { jacobianRepr =
+              if sparse
+                then SparseJacobian 40 -- this should be enough for our tests
+                else DenseJacobian
+          }
       Right (solutionMatrix -> solJac)   <- runKatipT ?log_env $ solve opts prob
-      Right (solutionMatrix -> solNoJac) <- runKatipT ?log_env $ solve opts prob { odeJacobian = Nothing }
+      Right (solutionMatrix -> solNoJac) <- runKatipT ?log_env $ solve
+        opts { jacobianRepr = DenseJacobian }
+        prob { odeJacobian = Nothing }
       checkDiscrepancy 1e-2 $ norm_2 (solJac - solNoJac)
   | (name, prob) <- [ brusselator, robertson ]
+  , sparse <- [False, True]
   ]
 
 eventTests opts = testGroup "Events"

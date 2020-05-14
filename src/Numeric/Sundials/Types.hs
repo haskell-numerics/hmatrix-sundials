@@ -8,6 +8,7 @@ module Numeric.Sundials.Types
   , odeRhsPure
   , UserData
   , Jacobian
+  , JacobianRepr(..)
   , ODEOpts(..)
   , SundialsDiagnostics(..)
   , ErrorDiagnostics(..)
@@ -114,6 +115,11 @@ odeRhsPure f = OdeRhsHaskell $ \t y -> return $ f t y
 
 type Jacobian = Double -> Vector Double -> Matrix Double
 
+data JacobianRepr
+  = SparseJacobian !Int -- ^ sparse Jacobian with the given number of non-zero elements
+  | DenseJacobian
+  deriving (Read, Show, Eq)
+
 data ODEOpts method = ODEOpts {
     maxNumSteps :: Int32
   , minStep     :: Double
@@ -134,7 +140,10 @@ data ODEOpts method = ODEOpts {
     -- \(\|\frac{h^2\ddot{y}}{2}\| = 1\), where
     -- \(\ddot{y}\) is an estimated value of the second
     -- derivative of the solution at \(t_0\)
-  } deriving (Read, Show, Eq, Ord)
+  , jacobianRepr :: JacobianRepr
+    -- ^ use a sparse matrix to represent the Jacobian
+    -- and a sparse linear solver for Newton iterations
+  } deriving (Read, Show, Eq)
 
 data SundialsDiagnostics = SundialsDiagnostics {
     odeGetNumSteps               :: Int

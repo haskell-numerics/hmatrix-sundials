@@ -28,8 +28,12 @@ library
                        aeson,
                        katip,
                        ghc-prim
-  extra-libraries:     sundials_arkode,
+  extra-libraries:     sundials_arkode
                        sundials_cvode
+                       sundials_sunmatrixsparse
+                       sundials_sunlinsolklu
+                       suitesparseconfig
+                       klu
   other-extensions:    QuasiQuotes
   hs-source-dirs:      src
   exposed-modules:     Numeric.Sundials

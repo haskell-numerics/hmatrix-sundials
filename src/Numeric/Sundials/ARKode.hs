@@ -27,10 +27,11 @@ C.include "<arkode/arkode_arkstep.h>"
 C.include "<nvector/nvector_serial.h>"
 C.include "<sunmatrix/sunmatrix_dense.h>"
 C.include "<sunlinsol/sunlinsol_dense.h>"
+C.include "<sunlinsol/sunlinsol_klu.h>"
 C.include "<sundials/sundials_types.h>"
 C.include "<sundials/sundials_math.h>"
-C.include "Numeric/Sundials/Foreign_hsc.h"
 C.include "../../helpers.h"
+C.include "Numeric/Sundials/Foreign_hsc.h"
 
 -- | Available methods for ARKode
 data ARKMethod = SDIRK_2_1_2
@@ -192,11 +193,19 @@ solveC CConsts{..} CVars{..} report_error =
   flag = ARKStepRootInit(arkode_mem, $(int c_n_event_specs), $fun:(int (* c_event_fn) (double t, SunVector y[], double gout[], void * params)));
   if (check_flag(&flag, "ARKStepRootInit", 1, report_error)) return(6290);
 
-  /* Initialize dense matrix data structure and solver */
-  A = SUNDenseMatrix(c_dim, c_dim);
-  if (check_flag((void *)A, "SUNDenseMatrix", 0, report_error)) return 9061;
-  LS = SUNDenseLinearSolver(y, A);
-  if (check_flag((void *)LS, "SUNDenseLinearSolver", 0, report_error)) return 9316;
+  /* Initialize a jacobian matrix and solver */
+  int c_sparse_jac = $(int c_sparse_jac);
+  if (c_sparse_jac) {
+    A = SUNSparseMatrix(c_dim, c_dim, c_sparse_jac, CSC_MAT);
+    if (check_flag((void *)A, "SUNSparseMatrix", 0, report_error)) return 9061;
+    LS = SUNLinSol_KLU(y, A);
+    if (check_flag((void *)LS, "SUNLinSol_KLU", 0, report_error)) return 9316;
+  } else {
+    A = SUNDenseMatrix(c_dim, c_dim);
+    if (check_flag((void *)A, "SUNDenseMatrix", 0, report_error)) return 9061;
+    LS = SUNDenseLinearSolver(y, A);
+    if (check_flag((void *)LS, "SUNDenseLinearSolver", 0, report_error)) return 9316;
+  }
 
   /* Attach matrix and linear solver */
   flag = ARKStepSetLinearSolver(arkode_mem, LS, A);

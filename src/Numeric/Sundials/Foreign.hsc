@@ -15,6 +15,7 @@ module Numeric.Sundials.Foreign
   , SunIndexType
   , SunRealType
   , SunMatrix(..)
+  , Sparse(..)
   , SunVector(..)
   , sunContentLengthOffset
   , sunContentDataOffset
@@ -49,12 +50,18 @@ import           Foreign.C.Types
 
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VM
+import Data.IORef
+import Data.Coerce
+import Control.Monad
+import Control.Exception
+import Text.Printf (printf)
 
 #include <stdio.h>
 #include <sundials/sundials_nvector.h>
 #include <sundials/sundials_matrix.h>
 #include <nvector/nvector_serial.h>
 #include <sunmatrix/sunmatrix_dense.h>
+#include <sunmatrix/sunmatrix_sparse.h>
 #include <arkode/arkode.h>
 #include <arkode/arkode_arkstep.h>
 #include <cvode/cvode.h>
@@ -71,6 +78,9 @@ data SunMatrix = SunMatrix
   , vals :: VS.Vector CDouble
     -- ^ matrix entries in the column-major order
   }
+
+-- | A sparse object (such as 'SunMatrix')
+newtype Sparse a = Sparse a
 
 type SunIndexType = #type sunindextype
 type SunRealType = #type realtype
@@ -110,6 +120,41 @@ instance Storable SunMatrix where
   sizeOf _    = error "sizeOf not supported for SunMatrix"
   alignment _ = error "alignment not supported for SunMatrix"
 
+instance Storable (Sparse SunMatrix) where
+  poke p (Sparse SunMatrix{..}) = do
+    content_ptr <- getContentMatrixPtr p
+    sparse_type :: CInt <- #{peek SunMatrixContentSparse, sparsetype} content_ptr
+    unless (sparse_type == cSC_MAT) $
+      throwIO . ErrorCall $ printf "Sparse SUNMatrix poke: only CSC matrices are supported, got %d" (fromIntegral sparse_type :: Int)
+    #{poke SunMatrixContentSparse, M} content_ptr rows
+    #{poke SunMatrixContentSparse, N} content_ptr cols
+    indexvals :: Ptr SunIndexType <- #{peek SunMatrixContentSparse, indexvals} content_ptr
+    indexptrs :: Ptr SunIndexType <- #{peek SunMatrixContentSparse, indexptrs} content_ptr
+    data_ :: Ptr SunRealType <- #{peek SunMatrixContentSparse, data} content_ptr
+    max_entries :: SunIndexType <- #{peek SunMatrixContentSparse, NNZ} content_ptr
+    ix_ref <- newIORef 0
+    forM_ [0 .. cols - 1] $ \cur_col -> do
+      readIORef ix_ref >>= \ix ->
+        pokeElemOff indexptrs (fromIntegral cur_col) (fromIntegral ix)
+      forM_ [0 .. rows - 1] $ \cur_row -> do
+        let val = vals VS.! (fromIntegral $ cur_row + cur_col * rows)
+        when (val /= 0.0) $ do
+          ix <- readIORef ix_ref
+          if ix >= max_entries
+            then throwIO $ ErrorCall $ printf
+              "Sparse SUNMatrix poke: not enough space (NNZ = %d)" max_entries
+            else do
+              writeIORef ix_ref $! ix+1
+              pokeElemOff data_ (fromIntegral ix) (coerce val)
+              pokeElemOff indexvals (fromIntegral ix) (fromIntegral cur_row)
+    readIORef ix_ref >>= \ix ->
+      pokeElemOff indexptrs (fromIntegral cols) (fromIntegral ix)
+
+
+  peek        = error "peek not supported for a sparse SunMatrix"
+  sizeOf _    = error "sizeOf not supported for SunMatrix"
+  alignment _ = error "alignment not supported for SunMatrix"
+
 vectorFromC :: Storable a => Int -> Ptr a -> IO (VS.Vector a)
 vectorFromC len ptr = do
   ptr' <- newForeignPtr_ ptr
@@ -140,6 +185,7 @@ putDataInContents vec len ptr = do
 
 #def typedef struct _generic_SUNMatrix SunMatrix;
 #def typedef struct _SUNMatrixContent_Dense SunMatrixContent;
+#def typedef struct _SUNMatrixContent_Sparse SunMatrixContentSparse;
 
 sunContentLengthOffset :: Int
 sunContentLengthOffset = #offset SunContent, length
@@ -181,6 +227,9 @@ cV_ROOT_RETURN :: CInt
 cV_ROOT_RETURN = #const CV_ROOT_RETURN
 cV_TOO_CLOSE :: CInt
 cV_TOO_CLOSE = #const CV_TOO_CLOSE
+
+cSC_MAT :: CInt
+cSC_MAT = #const CSC_MAT
 
 cV_ADAMS :: CInt
 cV_ADAMS = #const CV_ADAMS
