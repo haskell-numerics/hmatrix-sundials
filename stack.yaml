@@ -1,4 +1,0 @@
-extra-deps:
-- tasty-golden-2.3.3
-resolver: nightly-2020-01-30
-allow-newer: true
