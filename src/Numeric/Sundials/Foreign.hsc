@@ -60,15 +60,17 @@ import qualified Data.Vector.Storable.Mutable as VM
 #include <cvode/cvode.h>
 
 
-data SunVector = SunVector { sunVecN    :: SunIndexType
-                           , sunVecVals :: VS.Vector CDouble
-                           }
+data SunVector = SunVector
+  { sunVecN    :: SunIndexType
+  , sunVecVals :: VS.Vector CDouble
+  }
 
-data SunMatrix = SunMatrix { rows :: CInt
-                           , cols :: CInt
-                           , vals :: VS.Vector CDouble
-                             -- ^ matrix entries in the column-major order
-                           }
+data SunMatrix = SunMatrix
+  { rows :: SunIndexType
+  , cols :: SunIndexType
+  , vals :: VS.Vector CDouble
+    -- ^ matrix entries in the column-major order
+  }
 
 type SunIndexType = #type sunindextype
 type SunRealType = #type realtype
@@ -148,14 +150,14 @@ sunContentDataOffset = #offset SunContent, data
 getContentMatrixPtr :: Storable a => Ptr b -> IO a
 getContentMatrixPtr ptr = (#peek SunMatrix, content) ptr
 
-getNRows :: Ptr b -> IO CInt
+getNRows :: Ptr b -> IO SunIndexType
 getNRows ptr = (#peek SunMatrixContent, M) ptr
-putNRows :: CInt -> Ptr b -> IO ()
+putNRows :: SunIndexType -> Ptr b -> IO ()
 putNRows nr ptr = (#poke SunMatrixContent, M) ptr nr
 
-getNCols :: Ptr b -> IO CInt
+getNCols :: Ptr b -> IO SunIndexType
 getNCols ptr = (#peek SunMatrixContent, N) ptr
-putNCols :: CInt -> Ptr b -> IO ()
+putNCols :: SunIndexType -> Ptr b -> IO ()
 putNCols nc ptr = (#poke SunMatrixContent, N) ptr nc
 
 getMatrixData :: Storable a => Ptr b -> IO a
