@@ -9,6 +9,7 @@ module Numeric.Sundials.Types
   , UserData
   , Jacobian
   , JacobianRepr(..)
+  , SparsePattern(..)
   , ODEOpts(..)
   , SundialsDiagnostics(..)
   , ErrorDiagnostics(..)
@@ -40,6 +41,7 @@ import           Language.C.Types as CT
 import           Language.C.Inline.Context
 import           Numeric.Sundials.Foreign (SunVector(..), SunMatrix(..),
                                           SunIndexType, SunRealType,
+                                          SparsePattern(..),
                                           sunContentLengthOffset,
                                           sunContentDataOffset)
 import GHC.Generics (Generic)
@@ -93,7 +95,7 @@ data Tolerances = Tolerances
     -- ^ If 'Left', then the same tolerance is used for all variables.
     --
     -- If 'Right', the vector should contain one tolerance per variable.
-  } deriving (Read, Show, Eq, Ord)
+  } deriving (Show, Eq, Ord)
 
 -- | The type of the C ODE RHS function.
 type OdeRhsCType = CDouble -> Ptr SunVector -> Ptr SunVector -> Ptr UserData -> IO CInt
@@ -116,9 +118,9 @@ odeRhsPure f = OdeRhsHaskell $ \t y -> return $ f t y
 type Jacobian = Double -> Vector Double -> Matrix Double
 
 data JacobianRepr
-  = SparseJacobian !Int -- ^ sparse Jacobian with the given number of non-zero elements
+  = SparseJacobian !SparsePattern -- ^ sparse Jacobian with the given sparse pattern
   | DenseJacobian
-  deriving (Read, Show, Eq)
+  deriving (Show)
 
 data ODEOpts method = ODEOpts {
     maxNumSteps :: Int32
@@ -143,7 +145,7 @@ data ODEOpts method = ODEOpts {
   , jacobianRepr :: JacobianRepr
     -- ^ use a sparse matrix to represent the Jacobian
     -- and a sparse linear solver for Newton iterations
-  } deriving (Read, Show, Eq)
+  } deriving (Show)
 
 data SundialsDiagnostics = SundialsDiagnostics {
     odeGetNumSteps               :: Int

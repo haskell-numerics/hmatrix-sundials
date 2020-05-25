@@ -281,7 +281,7 @@ withVsWithoutJacobian opts0 = testGroup "With vs without jacobian"
         opts = opts0
           { jacobianRepr =
               if sparse
-                then SparseJacobian 40 -- this should be enough for our tests
+                then SparseJacobian spat -- this should be enough for our tests
                 else DenseJacobian
           }
       Right (solutionMatrix -> solJac)   <- runKatipT ?log_env $ solve opts prob
@@ -289,9 +289,15 @@ withVsWithoutJacobian opts0 = testGroup "With vs without jacobian"
         opts { jacobianRepr = DenseJacobian }
         prob { odeJacobian = Nothing }
       checkDiscrepancy 1e-2 $ norm_2 (solJac - solNoJac)
-  | (name, prob) <- [ brusselator, robertson ]
+  | ((name, prob), spat) <-
+      [ (brusselator, brusselator_sparse_pattern)
+      , (robertson, robertson_sparse_pattern)
+      ]
   , sparse <- [False, True]
   ]
+  where
+    brusselator_sparse_pattern = SparsePattern [1,1,1, 1,1,1, 1,0,1]
+    robertson_sparse_pattern = SparsePattern [1,1,0, 1,1,1, 1,1,0]
 
 eventTests opts = testGroup "Events"
   [ odeGoldenTest True opts "Exponential" $

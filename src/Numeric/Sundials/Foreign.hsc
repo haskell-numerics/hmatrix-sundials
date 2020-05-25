@@ -15,7 +15,8 @@ module Numeric.Sundials.Foreign
   , SunIndexType
   , SunRealType
   , SunMatrix(..)
-  , Sparse(..)
+  , SparsePattern(..)
+  , SparseMatrix(..)
   , SunVector(..)
   , sunContentLengthOffset
   , sunContentDataOffset
@@ -79,8 +80,13 @@ data SunMatrix = SunMatrix
     -- ^ matrix entries in the column-major order
   }
 
--- | A sparse object (such as 'SunMatrix')
-newtype Sparse a = Sparse a
+  -- | A sparse pattern: a column-wise stored matrix that has 0 for zero
+  -- entries and 1 for non-zero entries.
+newtype SparsePattern = SparsePattern (VS.Vector Int8)
+  deriving Show
+
+-- | A sparse matrix
+data SparseMatrix = SparseMatrix SparsePattern SunMatrix
 
 type SunIndexType = #type sunindextype
 type SunRealType = #type realtype
@@ -120,8 +126,8 @@ instance Storable SunMatrix where
   sizeOf _    = error "sizeOf not supported for SunMatrix"
   alignment _ = error "alignment not supported for SunMatrix"
 
-instance Storable (Sparse SunMatrix) where
-  poke p (Sparse SunMatrix{..}) = do
+instance Storable SparseMatrix where
+  poke p (SparseMatrix (SparsePattern spat) SunMatrix{..}) = do
     content_ptr <- getContentMatrixPtr p
     sparse_type :: CInt <- #{peek SunMatrixContentSparse, sparsetype} content_ptr
     unless (sparse_type == cSC_MAT) $
@@ -132,23 +138,28 @@ instance Storable (Sparse SunMatrix) where
     indexptrs :: Ptr SunIndexType <- #{peek SunMatrixContentSparse, indexptrs} content_ptr
     data_ :: Ptr SunRealType <- #{peek SunMatrixContentSparse, data} content_ptr
     max_entries :: SunIndexType <- #{peek SunMatrixContentSparse, NNZ} content_ptr
-    ix_ref <- newIORef 0
+
+    when (VS.any (`notElem` [0,1]) spat) $
+      throwIO $ ErrorCall $ "Illegal sparse pattern: " ++ show spat
+    when (max_entries < VS.sum (VS.map fromIntegral spat)) $
+      throwIO $ ErrorCall $ "Not enough space in sparse matrix for the sparse pattern"
+
+    out_ix_ref <- newIORef 0
     forM_ [0 .. cols - 1] $ \cur_col -> do
-      readIORef ix_ref >>= \ix ->
-        pokeElemOff indexptrs (fromIntegral cur_col) (fromIntegral ix)
+      readIORef out_ix_ref >>= \out_ix ->
+        pokeElemOff indexptrs (fromIntegral cur_col) (fromIntegral out_ix)
       forM_ [0 .. rows - 1] $ \cur_row -> do
-        let val = vals VS.! (fromIntegral $ cur_row + cur_col * rows)
-        when (val /= 0.0) $ do
-          ix <- readIORef ix_ref
-          if ix >= max_entries
-            then throwIO $ ErrorCall $ printf
-              "Sparse SUNMatrix poke: not enough space (NNZ = %d)" max_entries
-            else do
-              writeIORef ix_ref $! ix+1
-              pokeElemOff data_ (fromIntegral ix) (coerce val)
-              pokeElemOff indexvals (fromIntegral ix) (fromIntegral cur_row)
-    readIORef ix_ref >>= \ix ->
-      pokeElemOff indexptrs (fromIntegral cols) (fromIntegral ix)
+        let
+          in_ix = fromIntegral $ cur_row + cur_col * rows
+          non_zero = (spat VS.! in_ix) /= 0
+          val = vals VS.! in_ix
+        when non_zero $ do
+          out_ix <- readIORef out_ix_ref
+          writeIORef out_ix_ref $! out_ix+1
+          pokeElemOff data_ out_ix (coerce val)
+          pokeElemOff indexvals out_ix (fromIntegral cur_row)
+    readIORef out_ix_ref >>= \out_ix ->
+      pokeElemOff indexptrs (fromIntegral cols) (fromIntegral out_ix)
 
 
   peek        = error "peek not supported for a sparse SunMatrix"

@@ -200,10 +200,10 @@ withCConsts ODEOpts{..} OdeProblem{..} = runContT $ do
         Just jacI -> do j <- matrixToSunMatrix . jacI (coerce t) <$> (coerce $ sunVecVals <$> peek y)
                         case jacobianRepr of
                           DenseJacobian -> poke jacS j
-                          SparseJacobian{} -> poke (castPtr jacS) (T.Sparse j)
+                          SparseJacobian spat -> poke (castPtr jacS) (T.SparseMatrix spat j)
                         return 0
     c_sparse_jac = case jacobianRepr of
-      SparseJacobian n -> fromIntegral n
+      SparseJacobian (T.SparsePattern spat) -> VS.sum (VS.map fromIntegral spat)
       DenseJacobian -> 0
     c_method = methodToInt odeMethod
 
