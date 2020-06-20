@@ -74,7 +74,7 @@ test-suite test
                        filepath,
                        tasty,
                        tasty-hunit,
-                       tasty-golden,
+                       tasty-golden >= 2.3.3,
                        vector,
                        hmatrix,
                        hmatrix-sundials,
