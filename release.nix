@@ -17,4 +17,4 @@ drv = haskellPackages.callPackage ./default.nix { klu = nixpkgs.suitesparse; sui
 
 in
 
-drv.env
+drv
