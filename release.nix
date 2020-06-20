@@ -5,15 +5,27 @@ overlay1 = self: super:
   sundials1 = self.callPackage ./CustomSundials { };
 };
 
+nixpkgs = builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/20.03.tar.gz";
+    sha256 = "0182ys095dfx02vl2a20j1hz92dx3mfgz2a6fhn31bqlp1wa8hlq";
+};
+
 in
 
-{ nixpkgs ? import <nixpkgs> { overlays = [ overlay1 ]; } }:
+{ pkgs ? import nixpkgs { overlays = [ overlay1 ]; } }:
 
 let
 
-haskellPackages = nixpkgs.haskellPackages;
+haskellPackages = pkgs.haskellPackages;
 
-drv = haskellPackages.callPackage ./default.nix { klu = nixpkgs.suitesparse; suitesparseconfig = nixpkgs.suitesparse; sundials_arkode = nixpkgs.sundials1; sundials_cvode = nixpkgs.sundials1; sundials_sunlinsolklu = nixpkgs.sundials1; sundials_sunmatrixsparse = nixpkgs.sundials1; };
+drv = haskellPackages.callPackage ./default.nix {
+  klu = pkgs.suitesparse;
+  suitesparseconfig = pkgs.suitesparse;
+  sundials_arkode = pkgs.sundials1;
+  sundials_cvode = pkgs.sundials1;
+  sundials_sunlinsolklu = pkgs.sundials1;
+  sundials_sunmatrixsparse = pkgs.sundials1;
+};
 
 in
 
