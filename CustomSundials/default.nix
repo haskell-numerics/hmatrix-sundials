@@ -19,9 +19,9 @@ in stdenv.mkDerivation rec {
   buildInputs = stdenv.lib.optionals (lapackSupport) [ gfortran ];
   nativeBuildInputs =  [ cmake ];
 
-  src = fetchGit {
-    url = "https://github.com/LLNL/sundials";
-    rev = "887af4374af2271db9310d31eaa9b5aeff49e829";
+  src = fetchurl {
+    url = "https://computing.llnl.gov/projects/${pname}/download/${pname}-${version}.tar.gz";
+    sha256 = "19xwi7pz35s2nqgldm6r0jl2k0bs36zhbpnmmzc56s1n3bhzgpw8";
   };
 
   patches = [
