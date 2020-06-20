@@ -20,7 +20,7 @@ in stdenv.mkDerivation rec {
   nativeBuildInputs =  [ cmake ];
 
   src = fetchGit {
-    url = "file:///Users/dom/sundials";
+    url = "https://github.com/LLNL/sundials";
     rev = "887af4374af2271db9310d31eaa9b5aeff49e829";
   };
 
