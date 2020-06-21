@@ -1,8 +1,24 @@
 let
 
-overlay1 = self: super:
+sundialsOverlay = self: super:
 {
   sundials1 = self.callPackage ./CustomSundials { };
+};
+
+myHaskellPackageOverlay = self: super: {
+  myHaskellPackages = super.haskellPackages.override {
+    overrides = hself: hsuper: rec {
+
+   tasty-golden =
+        let newTastyGoldenSrc = builtins.fetchGit {
+          url = "https://github.com/feuerbach/tasty-golden.git";
+          rev = "500d828f683bd84eae89beaa43f577a64e41faf5";
+          };
+            tg = hself.callCabal2nix "tasty-golden" newTastyGoldenSrc {};
+          in
+          super.haskell.lib.dontCheck tg;
+      };
+    };
 };
 
 nixpkgs = builtins.fetchTarball {
@@ -12,11 +28,11 @@ nixpkgs = builtins.fetchTarball {
 
 in
 
-{ pkgs ? import nixpkgs { overlays = [ overlay1 ]; } }:
+{ pkgs ? import nixpkgs { overlays = [ sundialsOverlay myHaskellPackageOverlay ]; } }:
 
 let
 
-haskellPackages = pkgs.haskellPackages;
+haskellPackages = pkgs.myHaskellPackages;
 
 drv = haskellPackages.callPackage ./default.nix {
   klu = pkgs.suitesparse;
