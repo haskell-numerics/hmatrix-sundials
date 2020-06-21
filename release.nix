@@ -10,9 +10,8 @@ myHaskellPackageOverlay = self: super: {
     overrides = hself: hsuper: rec {
 
    tasty-golden =
-        let newTastyGoldenSrc = builtins.fetchGit {
-          url = "https://github.com/feuerbach/tasty-golden.git";
-          rev = "500d828f683bd84eae89beaa43f577a64e41faf5";
+        let newTastyGoldenSrc = builtins.fetchTarball { url = "https://hackage.haskell.org/package/tasty-golden-2.3.3.3/tasty-golden-2.3.3.3.tar.gz";
+          sha256 = "0src7yyns47m4hnbnvvbrmlpz183nn133ykr42yb6n4hq3imlw3q";
           };
             tg = hself.callCabal2nix "tasty-golden" newTastyGoldenSrc {};
           in
@@ -34,15 +33,13 @@ let
 
 haskellPackages = pkgs.myHaskellPackages;
 
-drv = haskellPackages.callPackage ./default.nix {
+in
+
+haskellPackages.callPackage ./default.nix {
   klu = pkgs.suitesparse;
   suitesparseconfig = pkgs.suitesparse;
   sundials_arkode = pkgs.sundials1;
   sundials_cvode = pkgs.sundials1;
   sundials_sunlinsolklu = pkgs.sundials1;
   sundials_sunmatrixsparse = pkgs.sundials1;
-};
-
-in
-
-drv
+}
