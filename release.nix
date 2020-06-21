@@ -11,7 +11,7 @@ myHaskellPackageOverlay = self: super: {
 
    tasty-golden =
         let newTastyGoldenSrc = builtins.fetchTarball { url = "https://hackage.haskell.org/package/tasty-golden-2.3.3.3/tasty-golden-2.3.3.3.tar.gz";
-          sha256 = "0src7yyns47m4hnbnvvbrmlpz183nn133ykr42yb6n4hq3imlw3q";
+          sha256 = "1p6kp5j1z6yy0yb3rvshkjspylz0ylahlkwhdm8im3vyzm5qz3rs";
           };
             tg = hself.callCabal2nix "tasty-golden" newTastyGoldenSrc {};
           in
