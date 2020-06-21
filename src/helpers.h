@@ -6,7 +6,7 @@
     opt == 2 means function allocates memory so check if returned
              NULL pointer
 */
-int check_flag(void *flagvalue, const char *funcname, int opt);
+int check_flag(void *flagvalue, const char *funcname, int opt, ARKErrHandlerFn report_error);
 
 /* Give void a name so that we can map it to the Haskell type UserData */
 typedef void UserData;

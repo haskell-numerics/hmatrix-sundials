@@ -1,29 +1,26 @@
-{ mkDerivation, base, bytestring, cassava, Chart, Chart-diagrams
-, clock, containers, deepseq, diagrams-cairo, diagrams-lib
-, diagrams-rasterific, hmatrix, hspec, inline-c, lens
-, optparse-applicative, plots, split, stdenv, sundials
-, template-haskell, vector
+{ mkDerivation, aeson, aeson-pretty, base, bytestring, cassava
+, clock, containers, deepseq, filepath, ghc-prim, hmatrix, inline-c
+, katip, klu, mtl, optparse-applicative, split, stdenv
+, suitesparseconfig, sundials_arkode, sundials_cvode
+, sundials_sunlinsolklu, sundials_sunmatrixsparse, tasty
+, tasty-golden, tasty-hunit, template-haskell, text, vector
 }:
 mkDerivation {
   pname = "hmatrix-sundials";
   version = "0.20.2.0";
   src = ./.;
-  isLibrary = true;
-  isExecutable = true;
   libraryHaskellDepends = [
-    base containers deepseq hmatrix inline-c split template-haskell
-    vector
+    aeson base bytestring containers deepseq ghc-prim hmatrix inline-c
+    katip mtl split template-haskell text vector
   ];
-  librarySystemDepends = [ sundials ];
-  executableHaskellDepends = [
-    base Chart Chart-diagrams diagrams-cairo diagrams-lib hmatrix
-    vector
+  librarySystemDepends = [
+    klu suitesparseconfig sundials_arkode sundials_cvode
+    sundials_sunlinsolklu sundials_sunmatrixsparse
   ];
   testHaskellDepends = [
-    base containers diagrams-lib diagrams-rasterific hmatrix hspec
-    inline-c lens plots split template-haskell vector
+    aeson aeson-pretty base bytestring filepath hmatrix katip tasty
+    tasty-golden tasty-hunit vector
   ];
-  testSystemDepends = [ sundials ];
   benchmarkHaskellDepends = [
     base bytestring cassava clock hmatrix optparse-applicative
   ];

@@ -1,66 +1,94 @@
 name:                hmatrix-sundials
 version:             0.20.2.0
 synopsis:            hmatrix interface to sundials
-description:         An interface to the solving suite SUNDIALS. Currently, it
-                     mimics the solving interface in hmstrix-gsl but
-                     provides more diagnostic information and the
-                     Butcher Tableaux (for Runge-Kutta methods).
-homepage:            https://github.com/haskell-numerics/hmatrix-sundials
+description:         An interface to the solving suite SUNDIALS.
 license:             BSD3
 license-file:        LICENSE
 author:              Dominic Steinitz
-maintainer:          dominic@steinitz.org
-copyright:           Dominic Steinitz 2018, Novadiscovery 2018
+maintainer:          Roman Cheplyaka
+copyright:           Dominic Steinitz 2018, Novadiscovery 2019
 category:            Math
 build-type:          Simple
-extra-source-files:  ChangeLog.md, README.md, diagrams/*.png
-extra-doc-files:     diagrams/*.png
+extra-source-files:  ChangeLog.md, README.md
 cabal-version:       >=1.18
 
 
 library
-  build-depends:       base >=4.12 && <4.13,
-                       inline-c,
-                       vector,
-                       template-haskell >=2.14 && <2.15,
-                       containers,
-                       split,
-                       hmatrix,
-                       deepseq
-  extra-libraries:     sundials_arkode,
+  build-depends:       base >=4.10,
+                       inline-c >=0.6,
+                       vector >=0.12,
+                       template-haskell >=2.12,
+                       containers >=0.5,
+                       split >=0.2,
+                       hmatrix>=0.18,
+                       deepseq,
+                       mtl,
+                       bytestring,
+                       text,
+                       aeson,
+                       katip,
+                       ghc-prim
+  extra-libraries:     sundials_arkode
                        sundials_cvode
+                       sundials_sunmatrixsparse
+                       sundials_sunlinsolklu
+                       suitesparseconfig
+                       klu
   other-extensions:    QuasiQuotes
   hs-source-dirs:      src
-  exposed-modules:     Numeric.Sundials.Types,
-                       Numeric.Sundials.Arkode,
-                       Numeric.Sundials.ARKode.ODE,
-                       Numeric.Sundials.CVode.ODE
+  exposed-modules:     Numeric.Sundials
+  other-modules:       Numeric.Sundials.Types
+                       Numeric.Sundials.ARKode
+                       Numeric.Sundials.CVode
+                       Numeric.Sundials.Foreign
+                       Numeric.Sundials.Common
   c-sources:           src/helpers.c
                        src/helpers.h
   default-language:    Haskell2010
+  default-extensions:  NondecreasingIndentation
+                       RecordWildCards
+                       NamedFieldPuns
+                       ScopedTypeVariables
+                       TemplateHaskell
+                       QuasiQuotes
+                       KindSignatures
+                       TypeOperators
+                       TypeSynonymInstances
+                       FlexibleInstances
+                       FlexibleContexts
+                       AllowAmbiguousTypes
+                       TypeApplications
+                       DeriveGeneric
+                       DeriveAnyClass
+                       OverloadedStrings
+  ghc-options:         -Wall
 
-test-suite hmatrix-sundials-testsuite
+test-suite test
   type:                exitcode-stdio-1.0
-  main-is:             Main.hs
-  build-depends:       base >=4.12 && <4.13,
-                       inline-c,
+  hs-source-dirs:      tests
+  main-is:             test.hs
+  build-depends:
+                       aeson,
+                       aeson-pretty,
+                       base,
+                       bytestring,
+                       filepath,
+                       tasty,
+                       tasty-hunit,
+                       tasty-golden >= 2.3.3,
                        vector,
+<<<<<<< variant A
                        template-haskell >=2.14 && <2.15,
                        containers,
                        split,
+>>>>>>> variant B
+======= end
                        hmatrix,
                        hmatrix-sundials,
-                       plots,
-                       diagrams-lib,
-                       diagrams-rasterific,
-                       lens,
-                       hspec,
-                       hmatrix-sundials
-  hs-source-dirs:      test
-  extra-libraries:     sundials_arkode,
-                       sundials_cvode
-  c-sources:           src/helpers.c
+                       katip
   default-language:    Haskell2010
+  ghc-options:         -Wall -Wno-missing-signatures -fno-omit-yields
+
 
 benchmark benchmark
   type:

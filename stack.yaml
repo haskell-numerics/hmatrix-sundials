@@ -1,6 +1,0 @@
-extra-deps:
-- plots-0.1.0.2
-- git: https://github.com/haskell/vector.git
-  commit: cc06420eaa597b85ffd8ded9f82aac1a3fc02c18
-resolver: lts-12.4
-allow-newer: true
