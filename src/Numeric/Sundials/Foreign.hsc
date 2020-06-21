@@ -80,8 +80,8 @@ data SunMatrix = SunMatrix
     -- ^ matrix entries in the column-major order
   }
 
-  -- | A sparse pattern: a column-wise stored matrix that has 0 for zero
-  -- entries and 1 for non-zero entries.
+-- | A sparse pattern: a column-wise stored matrix that has 0 for zero
+-- entries and 1 for non-zero entries.
 newtype SparsePattern = SparsePattern (VS.Vector Int8)
   deriving Show
 
