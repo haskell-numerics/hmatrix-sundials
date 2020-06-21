@@ -14,14 +14,14 @@ let liblapackShared = liblapack.override {
 
 in stdenv.mkDerivation rec {
   pname = "sundials";
-  version = "5.3.0";
+  version = "5.0.0";
 
   buildInputs = stdenv.lib.optionals (lapackSupport) [ gfortran ];
   nativeBuildInputs =  [ cmake ];
 
   src = fetchurl {
     url = "https://computing.llnl.gov/projects/${pname}/download/${pname}-${version}.tar.gz";
-    sha256 = "19xwi7pz35s2nqgldm6r0jl2k0bs36zhbpnmmzc56s1n3bhzgpw8";
+    sha256 = "1lvx5pddjxgyr8kqlira36kxckz7nxwc8xilzfyx0hf607n42l9l";
   };
 
   patches = [
