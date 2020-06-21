@@ -77,12 +77,6 @@ test-suite test
                        tasty-hunit,
                        tasty-golden >= 2.3.3,
                        vector,
-<<<<<<< variant A
-                       template-haskell >=2.14 && <2.15,
-                       containers,
-                       split,
->>>>>>> variant B
-======= end
                        hmatrix,
                        hmatrix-sundials,
                        katip
